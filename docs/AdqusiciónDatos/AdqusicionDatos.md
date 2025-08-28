@@ -33,3 +33,24 @@ Vamos a emplear unicamente los siguientes indicadores, que calcularemos con pand
 - [ ] Tengo que crear la configuración
 - [ ] Tener en cuenta el guardado de metadata, el como recopilar la información, run_id...
 - [ ] Tengo que añadir el analisis de datos para ver el estado de los mismos.
+
+# Creación de adquisición.py
+Este archivo será no ejecutable. Contendrá unicamente una clase que organiza la descarga de datos serializada. Pienso incluir una función de descarga de datos klines y una función main que haga repetidas llamada para no sobrecargar el endpoint.
+
+
+# Creación de la configuración.
+Para la configuración voy a usar la librería pydantic. Esto me perimite crear un objeto que será la única fuente de verdad. ¿Qué es lo que resuelve?
+- Ningun datos hardcodeado en el código.
+- Validación de tipado y formato antes de ejecutar cualquier otro proceso.
+
+NO voy a incluir el uso de una api-key para este sistema. Ya que los klines son accesibles sin necesidad de verificarse. Así lo mantenemos mas sencillo.
+
+**Config.py:** En la clase principal uso 
+```python
+config_data['argparse'] = arg
+```
+en lugar de 
+```python
+return cls(**config_data, **arg)
+```
+POr que el segundo métod tiene la peculiaridad de que si hay elementos duplicados en ambos diccionarios. EL valor conservado es el del último diccionari. en este caso *arg*. Por ello, para siempre estar seguros de donde provienen los datos. Es mejor incluirlo en el config_data, dentro de una clave distinta al resto.

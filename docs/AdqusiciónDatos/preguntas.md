@@ -63,3 +63,38 @@ Este pipeline asegura que el modelo reciba datos limpios, enriquecidos y en un f
 Ademśa, es útil mantener la columna de precios duplicada, sin hacerle la normalización. Ya que se usará para calcular stoploss y otras cosas en el entorno.
 
 </details>
+
+
+<details>
+<summary> ¿Cuál es el estandar para crear un sistema de configuración que se verifique asi mismo y actúe como única fuente de verdad?</summary>
+
+Para crear un sistema de configuración robusto, que se valide a sí mismo y funcione como una única fuente de verdad, el estándar en el ecosistema de Python es combinar un **fichero de configuración legible** (como YAML) con una **librería de validación de datos** como **Pydantic**.
+
+Este enfoque separa la configuración del código y garantiza que los parámetros sean correctos antes de que la aplicación se ejecute.
+
+### Componentes del Sistema
+
+1.  **Fichero de Configuración (ej. `config.yml`)**:
+    *   **Propósito**: Almacenar todos los parámetros de configuración de forma centralizada y en un formato legible para humanos. Esto incluye claves de API, rutas de ficheros, parámetros del modelo, listas de características, etc.
+    *   **Ventajas**: Fácil de modificar sin tocar el código. Permite tener diferentes configuraciones para desarrollo, pruebas y producción.
+
+2.  **Modelo de Datos de Configuración (ej. `config.py` con Pydantic)**:
+    *   **Propósito**: Definir la estructura esperada de la configuración usando clases de Python y anotaciones de tipo. Pydantic utiliza este modelo para:
+        1.  Leer y parsear el fichero `config.yml`.
+        2.  **Validar** que todos los campos necesarios existan.
+        3.  **Coaccionar** los datos a los tipos de Python correctos (ej. convertir `"100"` a `100`).
+        4.  Aplicar reglas de validación personalizadas (ej. un valor debe ser positivo).
+    *   **Ventajas**:
+        *   **Fuente Única de Verdad**: El resto de la aplicación importa y utiliza el objeto de configuración validado por Pydantic, no el fichero YAML directamente.
+        *   **Autovalidación**: La aplicación falla al inicio si la configuración es inválida, con un error claro que indica qué parámetro está mal. Esto previene errores inesperados en tiempo de ejecución.
+        *   **Soporte del IDE**: Al ser un objeto de Python tipado, se obtiene autocompletado y verificación de tipos en el editor.
+
+### Flujo de Trabajo
+
+1.  **Definir la estructura** en `config.yml`.
+2.  **Crear un modelo Pydantic** en `config.py` que refleje esa estructura.
+3.  Al iniciar la aplicación, **cargar el fichero YAML y pasarlo al modelo Pydantic** para crear una instancia de configuración global.
+4.  **Usar esta instancia** en todo el proyecto para acceder a los parámetros de forma segura.
+
+Este patrón asegura que la configuración sea explícita, validada y centralizada, eliminando una fuente común de errores en proyectos complejos.
+</details>
