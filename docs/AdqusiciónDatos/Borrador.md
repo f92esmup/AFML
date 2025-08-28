@@ -28,17 +28,7 @@ Vamos a emplear unicamente los siguientes indicadores, que calcularemos con pand
 - Bandas de Bollinger: Para medir la volatilidad.
 - Media Móvil Simple (SMA): Para la tendencia a largo plazo (ej. 50 o 200 periodos). 
 
-
-# Cosas que quiero tener en cuenta:
-- [ ] Tengo que crear la configuración
-- [ ] Tener en cuenta el guardado de metadata, el como recopilar la información, run_id...
-- [ ] Tengo que añadir el analisis de datos para ver el estado de los mismos.
-
-# Creación de adquisición.py
-Este archivo será no ejecutable. Contendrá unicamente una clase que organiza la descarga de datos serializada. Pienso incluir una función de descarga de datos klines y una función main que haga repetidas llamada para no sobrecargar el endpoint.
-
-
-# Creación de la configuración.
+# La configuración.
 Para la configuración voy a usar la librería pydantic. Esto me perimite crear un objeto que será la única fuente de verdad. ¿Qué es lo que resuelve?
 - Ningun datos hardcodeado en el código.
 - Validación de tipado y formato antes de ejecutar cualquier otro proceso.

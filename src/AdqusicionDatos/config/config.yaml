@@ -1,0 +1,8 @@
+data_downloader:
+  limit: 1000
+
+
+output:
+  data_filename: 'data.csv'
+  metadata_filename: 'metadata.yaml'
+  scaler_filename: 'scaler.pkl'
