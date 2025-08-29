@@ -48,7 +48,7 @@ class PreprocesamientoConfig(BaseModel):
 
 class OutputConfig(BaseModel):
     """Configuración para los archivos de salida."""
-    data_id: str = Field(..., description="Prefijo de la carpeta de salida, identificado con el data_id.")
+    root: str = Field(..., description="Prefijo de la carpeta de salida, identificado con el data_id.")
     data_filename: str = Field(..., description="Nombre del archivo de datos.")
     metadata_filename: str = Field(..., description="Nombre del archivo de metadatos.")
     scaler_filename: str = Field(..., description="Nombre del archivo del scaler.")
@@ -63,13 +63,13 @@ class Config(BaseModel):
     output: OutputConfig
 
     @classmethod
-    def load_config(cls, args: argparse.Namespace, file_path: str) -> "Config":
+    def load_config(cls, args: argparse.Namespace) -> "Config":
         """
         Carga la configuración desde un YAML, la fusiona con los argumentos de línea de comando
         y valida todo el conjunto. Los argumentos de línea de comando tienen prioridad.
         """
         try:
-            with open(file_path, "r") as file:
+            with open(args.config, "r") as file:
                 yaml_config = yaml.safe_load(file)
         except (FileNotFoundError, yaml.YAMLError) as e:
             raise ValueError(f"Error al cargar el archivo de configuración: {e}")
@@ -97,7 +97,7 @@ class Config(BaseModel):
         yaml_config['data_downloader']['start_date'] = args.start_date
         yaml_config['data_downloader']['end_date'] = args.end_date or datetime.now().strftime('%Y-%m-%d')
         
-        yaml_config['output']['data_id'] = cls._data_id(args.symbol)
+        yaml_config['output']['root'] = cls._data_id(args.symbol)
         
         return yaml_config
     
@@ -107,4 +107,4 @@ class Config(BaseModel):
         El data_id es una combinación del símbolo y la fecha de creación.
         """
         date= datetime.now().strftime('%Y-%m-%d')
-        return f"{symbol}_{date}"
+        return f"datasets/{symbol}_{date}"

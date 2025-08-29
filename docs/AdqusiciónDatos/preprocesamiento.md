@@ -1,6 +1,6 @@
 # Preprocesamiento.py
 
-> **Resumen:** En este script vamos a recibie el dataframe resultante de adquisición.py. El cual ya ha sido somretido a la ELIMINACIÓN DE DUPLICADOS.  Haremos un proceso de verificación y calculo de indicares. Obteniendo como resultado el script ya limpio y listo para la normalización.
+> **Resumen:** En este script vamos a recibie el dataframe resultante de adquisición.py. El cual ya ha sido somretido a la ELIMINACIÓN DE DUPLICADOS.  Haremos un proceso de limpieza, calculo de indicares y del scaler. Obteniendo como resultado el script ya limpio y listo para guardar. IMPORTANTE: no normalizamos los valores. solo calculamos el scaler ya que la normalización se debe hacer en el entorno, ya que por ejemplo durante una evaluación hay que normalizar datos con un scaler distinto.
 
 Primero voy a estructurar las funciones de las clsases en las siguientes:
 - UNa función principal orquestadora run.
@@ -339,5 +339,89 @@ Las dos primeras filas tienen `NaN` en la columna `SMA_3` porque no hay suficien
 | **10:15** | 103 | 102.0 |
 
 El método `.dropna()` ha eliminado todas las filas que contenían algún `NaN`, dejando un DataFrame completamente limpio y listo para ser utilizado.
+
+</details>
+
+**_scaler**
+
+En esta función calculamos el scaler de nuestross datos. y el objeto se devuelve como salida.
+
+El método de scaler que voy a utilizar para normalizar los datos es el stdou
+
+<details>
+<summary> ¿Cómo se define un scaler, como se ajusta y usa para transformar?</summary>
+
+El escalado de características es un paso fundamental en el preprocesamiento de datos para muchos algoritmos de Machine Learning. Su objetivo es normalizar el rango de las variables independientes o características de los datos para que todas tengan una escala similar.
+
+Un "scaler" es un objeto, generalmente de la librería `scikit-learn`, que aprende los parámetros necesarios para esta transformación a partir de los datos de entrenamiento y luego los aplica a cualquier conjunto de datos.
+
+El proceso se divide en tres pasos clave: **definir**, **ajustar (`fit`)** y **transformar (`transform`)**.
+
+### 1. Definir el Scaler
+
+Primero, se crea una instancia del tipo de scaler que se desea utilizar. El más común para normalizar precios en un rango de [0, 1] es `MinMaxScaler`.
+
+````python
+from sklearn.preprocessing import MinMaxScaler
+
+# 1. Definir: Creamos una instancia del scaler
+scaler = MinMaxScaler()
+````
+
+### 2. Ajustar el Scaler (`.fit()`)
+
+El método `.fit()` es el paso de "aprendizaje". El scaler analiza los datos que le pasas para calcular los parámetros de transformación necesarios. Para `MinMaxScaler`, `.fit()` calcula el valor mínimo y máximo de cada columna en los datos.
+
+**¡Crucial!** El método `.fit()` **solo debe ejecutarse sobre los datos de entrenamiento**. Hacerlo sobre el conjunto completo (entrenamiento + prueba) introduciría información del futuro en el proceso de entrenamiento (*data leakage*), lo que llevaría a una evaluación demasiado optimista del rendimiento del modelo.
+
+````python
+# Supongamos que 'training_data' es un DataFrame de pandas con tus características
+# 2. Ajustar: El scaler "aprende" los mínimos y máximos de los datos de entrenamiento
+scaler.fit(training_data)
+````
+
+### 3. Usar para Transformar (`.transform()`)
+
+Una vez que el scaler ha sido "ajustado", se puede usar su método `.transform()` para aplicar la transformación de escalado a cualquier conjunto de datos (entrenamiento, validación o prueba). Este método utiliza los parámetros aprendidos en el paso `.fit()` para escalar los nuevos datos.
+
+````python
+# 3. Transformar: Aplicamos la transformación a los datos de entrenamiento
+scaled_training_data = scaler.transform(training_data)
+
+# Cuando lleguen nuevos datos (ej. datos de prueba), usamos el MISMO scaler ya ajustado
+# scaled_test_data = scaler.transform(test_data)
+````
+
+### El atajo: `.fit_transform()`
+
+`scikit-learn` proporciona un método de conveniencia, `.fit_transform()`, que realiza ambos pasos (`fit` y `transform`) en una sola llamada. Es muy útil y eficiente, y se usa típicamente **solo sobre el conjunto de datos de entrenamiento**.
+
+````python
+# Ajustar y transformar en un solo paso sobre los datos de entrenamiento
+scaled_training_data = scaler.fit_transform(training_data)
+````
+
+### Guardar y Cargar el Scaler
+
+El objeto `scaler` ajustado es una pieza clave de tu modelo. Debes guardarlo para poder transformar nuevos datos en el futuro (por ejemplo, en producción) exactamente de la misma manera que transformaste los datos de entrenamiento. La librería `joblib` es la forma recomendada de hacerlo.
+
+**Guardar el scaler:**
+````python
+import joblib
+
+# Después de ajustar el scaler con scaler.fit(training_data)
+joblib.dump(scaler, 'ruta/donde/guardar/scaler.joblib')
+````
+
+**Cargar el scaler:**
+````python
+import joblib
+
+# En otro script o cuando necesites hacer predicciones
+loaded_scaler = joblib.load('ruta/donde/guardar/scaler.joblib')
+
+# Ahora puedes usar loaded_scaler para transformar nuevos datos
+# nuevos_datos_escalados = loaded_scaler.transform(nuevos_datos)
+````
 
 </details>

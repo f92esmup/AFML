@@ -13,9 +13,6 @@ preprocesamiento:
     BB_length: 20
     BB_std: 2
 
-
-
-
 output:
   data_filename: 'data.csv'
   metadata_filename: 'metadata.yaml'

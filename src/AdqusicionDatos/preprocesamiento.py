@@ -1,14 +1,15 @@
 """ clase para el limpiado y calculo de indicadores """
 import pandas as pd
 import pandas_ta as ta
+from sklearn.preprocessing import StandardScaler
 
 from src.AdqusicionDatos.config.config import Config
 
-class preprocesamiento:
+class Preprocesamiento:
     
-    def __init__(self, df: pd.DataFrame, config: Config) -> None:
+    def __init__(self, config: Config) -> None:
 
-        self.df = df
+        self.df = pd.DataFrame()
 
         self.interval = config.data_downloader.interval
         self.interpol_method = config.preprocesamiento.interpol_method
@@ -25,14 +26,17 @@ class preprocesamiento:
 
 
 
-    def run(self) -> pd.DataFrame:
+    def run(self, df: pd.DataFrame) -> tuple[pd.DataFrame, StandardScaler]:
         """ metodo para ejecutar el preprocesamiento """
-        # _continuidad & _interpolación -> _calculo_indicadores -> _eliminar_faltantes
+        # Asignamos el DataFrame
+        self.df = df
+        # _continuidad -> _interpolación -> _calculo_indicadores -> _eliminar_faltantes
         self.df = self._continuidad()
         self.df = self._interpolacion()
         self.df = self._calculo_indicadores()
         self.df = self._eliminar_faltantes()
-        return self.df
+        scaler = self._scaler()
+        return self.df, scaler
 
     def _interpolacion(self) -> pd.DataFrame:
         """ metodo para realizar la interpolacion de los datos """
@@ -103,3 +107,12 @@ class preprocesamiento:
         self.df.dropna(inplace=True)
         return self.df
     
+    def _scaler(self) -> StandardScaler:
+        """ métdo para calcular el scaler """
+
+        # Creamos el objeto StandardScaler:
+        scaler = StandardScaler()
+        # Ajustamos el scaler a los datos (aprendiendo los parámetros):
+        scaler.fit(self.df)
+
+        return scaler
