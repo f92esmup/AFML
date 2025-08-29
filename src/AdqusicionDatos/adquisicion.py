@@ -3,6 +3,8 @@ import pandas as pd
 import time
 from datetime import datetime, timedelta
 
+from src.AdqusicionDatos.config.config import Config
+
 # Mapeo de intervalos de Binance a objetos timedelta de Python
 INTERVAL_MAP = {
     '1m': timedelta(minutes=1),
@@ -16,7 +18,7 @@ INTERVAL_MAP = {
 
 class DataDownloader:
 
-    def __init__(self, client, config): # No he tipeado estos objetos.
+    def __init__(self, client, config: Config) -> None: # No he tipeado estos objetos.
         self.client = client
         # Asignamos los valores desde el objeto de configuración
         self.symbol = config.data_downloader.symbol
@@ -47,7 +49,7 @@ class DataDownloader:
         para cada llamada necesaria a la API.
         """
         current_start_dt = datetime.strptime(self.start_str, '%Y-%m-%d')
-        absolute_end_dt = datetime.strptime(self.end_str, '%Y-%m-%d')
+        absolute_end_dt = datetime.strptime(self.end_str, '%Y-%m-%d')  #type: ignore
         
         interval_delta = INTERVAL_MAP.get(self.interval_str)
         if not interval_delta:

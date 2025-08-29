@@ -1,7 +1,7 @@
 """Este script se encarga de la configuración del sistema de adquisición de datos."""
 
 import yaml
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Literal
 from pydantic import BaseModel, ValidationError, Field
 from datetime import datetime
 import argparse
@@ -18,10 +18,33 @@ class DataDownloaderConfig(BaseModel):
     symbol: str = Field(..., description="Símbolo del par de trading, e.g., 'BTCUSDT'.")
     interval: str = Field(..., description="Intervalo de tiempo para las velas, e.g., '1m', '5m', '1h'.")
     start_date: str = Field(..., regex=r'^\d{4}-\d{2}-\d{2}$', description="Fecha de inicio en formato 'YYYY-MM-DD'.") # type: ignore
-    end_date: Optional[str] = Field(..., default=None, regex=r'^\d{4}-\d{2}-\d{2}$', description="Fecha de fin en formato 'YYYY-MM-DD'. Si no se proporciona, se usa la fecha actual.") # type: ignore
+    end_date: Optional[str] = Field(..., regex=r'^\d{4}-\d{2}-\d{2}$', description="Fecha de fin en formato 'YYYY-MM-DD'. Si no se proporciona, se usa la fecha actual.") # type: ignore
     
     # --- Argumentos que probablemente solo vengan del YAML ---
     limit: int = Field(..., gt=0, le=1500, description="Límite de velas por llamada, máximo 1500.")
+
+class IndicadoresConfig(BaseModel):
+    """Configuración específica para los indicadores técnicos."""
+    SMA_short: int = Field(..., gt=0, description="Periodo para la SMA de corto plazo.")
+    SMA_long: int = Field(..., gt=0, description="Periodo para la SMA de largo plazo.")
+    RSI_length: int = Field(..., gt=0, description="Periodo para el RSI.")
+    MACD_fast: int = Field(..., gt=0, description="Periodo rápido para MACD.")
+    MACD_slow: int = Field(..., gt=0, description="Periodo lento para MACD.")
+    MACD_signal: int = Field(..., gt=0, description="Periodo de señal para MACD.")
+    BB_length: int = Field(..., gt=0, description="Periodo para las Bandas de Bollinger.")
+    BB_std: float = Field(..., gt=0, description="Número de desviaciones estándar para las Bandas de Bollinger.")
+
+class PreprocesamientoConfig(BaseModel):
+    """Configuración para el preprocesamiento de datos."""
+    # Métodos de preprocesamiento
+    interpol_method: Literal[
+        'linear', 'time', 'index', 'values', 'nearest', 'zero', 'slinear', 
+        'quadratic', 'cubic', 'barycentric', 'krogh', 'polynomial', 'spline', 
+        'piecewise_polynomial', 'from_derivatives', 'pchip', 'akima', 'cubicspline'
+    ] = Field(..., description="Método de interpolación para rellenar valores NaN, e.g., 'linear', 'time'.")
+    
+    # Indicadores técnicos
+    indicadores: IndicadoresConfig
 
 class OutputConfig(BaseModel):
     """Configuración para los archivos de salida."""
@@ -36,6 +59,7 @@ class OutputConfig(BaseModel):
 
 class Config(BaseModel):
     data_downloader: DataDownloaderConfig
+    preprocesamiento: PreprocesamientoConfig
     output: OutputConfig
 
     @classmethod
@@ -84,4 +108,3 @@ class Config(BaseModel):
         """
         date= datetime.now().strftime('%Y-%m-%d')
         return f"{symbol}_{date}"
-        
