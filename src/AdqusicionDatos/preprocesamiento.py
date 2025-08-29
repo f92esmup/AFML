@@ -3,7 +3,7 @@ import pandas as pd
 import pandas_ta as ta
 from sklearn.preprocessing import StandardScaler
 
-from src.AdqusicionDatos.config.config import Config
+from src.AdqusicionDatos.config import Config
 
 class Preprocesamiento:
     

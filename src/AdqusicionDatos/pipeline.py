@@ -26,7 +26,7 @@ class DataPipeline:
 
         #### LO QUE SIGA ####
 
-    def pipeline(self)-> None:
+    def run(self)-> None:
         """ metodo que ejecuta el pipeline de obtencion de datos """
         # 1. Descargamos los datos
         data = self.data_downloader.run()

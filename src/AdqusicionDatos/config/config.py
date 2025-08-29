@@ -10,18 +10,11 @@ import argparse
 ##########################################################################################################
 
 class DataDownloaderConfig(BaseModel):
-    """
-    Configuración UNIFICADA para la descarga de datos.
-    Los valores pueden venir del archivo YAML y ser sobrescritos por argparse.
-    """
-    # --- Argumentos que pueden venir de argparse o YAML ---
-    symbol: str = Field(..., description="Símbolo del par de trading, e.g., 'BTCUSDT'.")
-    interval: str = Field(..., description="Intervalo de tiempo para las velas, e.g., '1m', '5m', '1h'.")
-    start_date: str = Field(..., regex=r'^\d{4}-\d{2}-\d{2}$', description="Fecha de inicio en formato 'YYYY-MM-DD'.") # type: ignore
-    end_date: Optional[str] = Field(..., regex=r'^\d{4}-\d{2}-\d{2}$', description="Fecha de fin en formato 'YYYY-MM-DD'. Si no se proporciona, se usa la fecha actual.") # type: ignore
-    
-    # --- Argumentos que probablemente solo vengan del YAML ---
-    limit: int = Field(..., gt=0, le=1500, description="Límite de velas por llamada, máximo 1500.")
+    """ Configuración para la descarga de datos. """
+    symbol: str = Field(..., description="Símbolo del par de criptomonedas (ej. 'BTCUSDT').")
+    interval: str = Field(..., description="Intervalo de tiempo de las velas (ej. '1h', '4h', '1d').")
+    start_date: str = Field(..., pattern=r'^\d{4}-\d{2}-\d{2}$', description="Fecha de inicio en formato 'YYYY-MM-DD'.")
+    end_date: str = Field(..., pattern=r'^\d{4}-\d{2}-\d{2}$', description="Fecha de fin en formato 'YYYY-MM-DD'.")
 
 class IndicadoresConfig(BaseModel):
     """Configuración específica para los indicadores técnicos."""

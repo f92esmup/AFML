@@ -82,12 +82,12 @@ Esta es una de las características más potentes. `Field` te permite definir re
     // ...existing code...
     ````
 
--   **Validación de Cadenas de Texto (`regex`):** Puedes asegurar que una cadena de texto cumpla con un formato específico usando una expresión regular.
+-   **Validación de Cadenas de Texto (`pattern`):** Puedes asegurar que una cadena de texto cumpla con un formato específico usando una expresión regular.
     ````python
     # filepath: /home/pedro/AFML/src/AdqusicionDatos/config/config.py
     // ...existing code...
     # Asegura que la fecha tenga el formato YYYY-MM-DD
-    start_date: str = Field(regex=r'^\d{4}-\d{2}-\d{2}$', description="...") # type: ignore
+    start_date: str = Field(pattern=r'^\d{4}-\d{2}-\d{2}$', description="...") # type: ignore
     // ...existing code...
     ````
 
