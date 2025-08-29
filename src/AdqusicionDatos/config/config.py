@@ -99,5 +99,5 @@ class Config(BaseModel):
         """Devuelve el data_id para nombrar la carpeta de salida.
         El data_id es una combinación del símbolo y la fecha de creación.
         """
-        date= datetime.now().strftime('%Y-%m-%d')
+        date= datetime.now().strftime('%Y%m%d_%H%M%S')
         return f"datasets/{symbol}_{date}"

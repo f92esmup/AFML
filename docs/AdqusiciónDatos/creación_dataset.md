@@ -4,8 +4,5 @@
 
 # Lógica
 
-Actualmente vamos a poner la lógica de inicialización del pipeline nada más. No va a tener mucho contenido en un principio.
-
-
-# Preguntas
+Actualmente vamos a poner la lógica de inicialización del pipeline nada más. No va a tener mucho contenido es muy sencillo el script.
 
