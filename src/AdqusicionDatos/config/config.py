@@ -15,7 +15,7 @@ class DataDownloaderConfig(BaseModel):
     interval: str = Field(..., description="Intervalo de tiempo de las velas (ej. '1h', '4h', '1d').")
     start_date: str = Field(..., pattern=r'^\d{4}-\d{2}-\d{2}$', description="Fecha de inicio en formato 'YYYY-MM-DD'.")
     end_date: str = Field(..., pattern=r'^\d{4}-\d{2}-\d{2}$', description="Fecha de fin en formato 'YYYY-MM-DD'.")
-
+    limit: int = Field(..., gt=0, le=1500, description="Límite máximo de datos por llamada a la API (máx 1500).")
 class IndicadoresConfig(BaseModel):
     """Configuración específica para los indicadores técnicos."""
     SMA_short: int = Field(..., gt=0, description="Periodo para la SMA de corto plazo.")

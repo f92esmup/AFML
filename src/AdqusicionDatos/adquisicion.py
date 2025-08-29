@@ -3,7 +3,7 @@ import pandas as pd
 import time
 from datetime import datetime, timedelta
 
-from src.AdqusicionDatos.config.config import Config
+from src.AdqusicionDatos.config import Config
 
 # Mapeo de intervalos de Binance a objetos timedelta de Python
 INTERVAL_MAP = {
@@ -38,8 +38,8 @@ class DataDownloader:
         return self.client.futures_historical_klines(
             symbol=self.symbol, 
             interval=self.interval_str, 
-            startTime=start_ms, 
-            endTime=end_ms, 
+            start_str=start_ms, 
+            end_str=end_ms, 
             limit=self.limit
         )
     
