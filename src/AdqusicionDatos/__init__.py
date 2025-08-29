@@ -6,9 +6,11 @@ financieros relevantes para el sistema de trading.
 """
 from src.AdqusicionDatos.pipeline import DataPipeline
 from src.AdqusicionDatos.config import Config, parse_args
+from src.AdqusicionDatos.utils.logger import setup_logger
 
 __all__ = [
     "DataPipeline",
       "Config",
-      "parse_args"
+      "parse_args",
+      "setup_logger"
     ]
