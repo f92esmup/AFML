@@ -16,14 +16,14 @@ INTERVAL_MAP = {
 
 class DataDownloader:
 
-    def __init__(self, client, config):
+    def __init__(self, client, config): # No he tipeado estos objetos.
         self.client = client
         # Asignamos los valores desde el objeto de configuración
         self.symbol = config.data_downloader.symbol
         self.interval_str = config.data_downloader.interval
         self.start_str = config.data_downloader.start_date
         # Si no hay end_date, usamos la fecha actual
-        self.end_str = config.data_downloader.end_date or datetime.now().strftime('%Y-%m-%d')
+        self.end_str = config.data_downloader.end_date
         self.limit = config.data_downloader.limit # Límite máximo para futuros
 
     def _download_chunk(self, start_dt: datetime, end_dt: datetime) -> list:
