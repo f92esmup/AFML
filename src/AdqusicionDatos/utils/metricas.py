@@ -1,1 +1,0 @@
-""" Módulo de utilidades para Adquisición de datos """

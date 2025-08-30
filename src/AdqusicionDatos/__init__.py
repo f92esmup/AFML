@@ -12,5 +12,5 @@ __all__ = [
     "DataPipeline",
       "Config",
       "parse_args",
-      "setup_logger"
+      "setup_logger",
     ]

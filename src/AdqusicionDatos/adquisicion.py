@@ -12,6 +12,7 @@ log = logging.getLogger(f"AFML.{__name__}")
 INTERVAL_MAP = {
     '1m': timedelta(minutes=1),
     '5m': timedelta(minutes=5),
+    '15m': timedelta(minutes=15),
     '1h': timedelta(hours=1),
     '4h': timedelta(hours=4),
     '1d': timedelta(days=1),
