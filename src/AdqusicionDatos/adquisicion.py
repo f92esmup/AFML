@@ -2,8 +2,11 @@
 import pandas as pd
 import time
 from datetime import datetime, timedelta
+import logging
 
 from src.AdqusicionDatos.config import Config
+
+log = logging.getLogger(f"AFML.{__name__}")
 
 # Mapeo de intervalos de Binance a objetos timedelta de Python
 INTERVAL_MAP = {
@@ -27,10 +30,11 @@ class DataDownloader:
         # Si no hay end_date, usamos la fecha actual
         self.end_str = config.data_downloader.end_date
         self.limit = config.data_downloader.limit # Límite máximo para futuros
+        log.debug(f"DataDownloader inicializado para {self.symbol} con intervalo {self.interval_str} desde {self.start_str} hasta {self.end_str}.")
 
     def _download_chunk(self, start_dt: datetime, end_dt: datetime) -> list:
         """Descarga un único trozo de datos."""
-        print(f"Descargando desde {start_dt} hasta {end_dt}...")
+        log.debug(f"Descargando chunk desde {start_dt} hasta {end_dt}...")
         # Convertimos datetime a string en el formato que la API entiende
         start_ms = str(int(start_dt.timestamp() * 1000))
         end_ms = str(int(end_dt.timestamp() * 1000))
@@ -48,11 +52,14 @@ class DataDownloader:
         Calcula y devuelve una lista de tuplas (start_datetime, end_datetime)
         para cada llamada necesaria a la API.
         """
+        log.debug("Calculando intervalos de tiempo para las llamadas a la API.")
         current_start_dt = datetime.strptime(self.start_str, '%Y-%m-%d')
         absolute_end_dt = datetime.strptime(self.end_str, '%Y-%m-%d')  #type: ignore
         
         interval_delta = INTERVAL_MAP.get(self.interval_str)
         if not interval_delta:
+            # Es mejor lanzar un error si el intervalo no es válido
+            log.error(f"Intervalo '{self.interval_str}' no soportado para cálculo de tiempo.")
             raise ValueError(f"Intervalo '{self.interval_str}' no soportado para cálculo de tiempo.")
 
         chunk_delta = interval_delta * self.limit
@@ -68,11 +75,14 @@ class DataDownloader:
             # La nueva fecha de inicio es la fecha de fin del trozo actual
             current_start_dt = chunk_end_dt
         
+        log.debug(f"Se han calculado {len(intervals)} intervalos de tiempo.")
         return intervals
 
     def _process_to_dataframe(self, all_klines: list) -> pd.DataFrame:
         """Convierte la lista de datos descargados a un DataFrame con los formatos y nombres de columna adecuados."""
+        log.info("Procesando datos descargados para convertirlos a DataFrame.")
         if not all_klines:
+            log.warning("No se han recibido datos para procesar. Devolviendo DataFrame vacío.")
             return pd.DataFrame()
             
         columns = [
@@ -88,26 +98,34 @@ class DataDownloader:
             df[col] = pd.to_numeric(df[col], errors='coerce')
             
         # Eliminar duplicados que pueden aparecer en los solapamientos de las llamadas
+        initial_rows = len(df)
         df = df[~df.index.duplicated(keep='first')]
+        final_rows = len(df)
+        if initial_rows > final_rows:
+            log.debug(f"Se eliminaron {initial_rows - final_rows} registros duplicados.")
+
         return df[['open', 'high', 'low', 'close', 'volume']]
     
     def run(self) -> pd.DataFrame:
         """Realiza el proceso de descarga y devuelve el DataFrame resultante."""
+        log.info("Iniciando proceso de descarga de datos históricos.")
         time_intervals = self._get_time_intervals()
         all_klines_data = []
 
-        print(f"Se realizarán {len(time_intervals)} llamadas a la API de Binance.")
+        log.info(f"Se realizarán {len(time_intervals)} llamadas a la API de Binance.")
 
-        for start_dt, end_dt in time_intervals:
+        for i, (start_dt, end_dt) in enumerate(time_intervals):
             try:
+                log.info(f"Descargando chunk {i+1}/{len(time_intervals)}...")
                 chunk = self._download_chunk(start_dt, end_dt)
                 all_klines_data.extend(chunk)
+                log.debug(f"Pausa de 0.5s para no saturar la API.")
                 time.sleep(0.5) # Pausa para ser respetuosos con la API
             except Exception as e:
-                print(f"Error durante la descarga del trozo {start_dt}-{end_dt}: {e}")
+                log.error(f"Error durante la descarga del chunk {start_dt}-{end_dt}: {e}", exc_info=True)
         
-        print("Descarga completada. Procesando datos...")
+        log.info("Descarga de todos los chunks completada.")
         final_df = self._process_to_dataframe(all_klines_data)
-        print(f"Proceso finalizado. Se han obtenido {len(final_df)} velas.")
+        log.info(f"Proceso finalizado. Se han obtenido {len(final_df)} velas.")
         return final_df
 

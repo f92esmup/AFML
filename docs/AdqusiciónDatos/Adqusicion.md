@@ -319,3 +319,55 @@ Al proporcionar una lista de nombres en el parámetro `columns`, le estás dicie
 Esto transforma los datos crudos y ambiguos en un DataFrame estructurado, legible y fácil de usar, donde puedes acceder a los datos por su nombre (`df['close']`) en lugar de por su posición (`df[4]`). El orden de los nombres que proporcionas debe coincidir exactamente con el orden definido en la documentación de la API de Binance.
 
 </details>
+
+<details>
+<summary> ¿Cómo funciona el for con el enumerate? </summary>
+
+Claro. Esa línea es un uso muy común y potente de Python para iterar. Te la explico por partes:
+
+`for i, (start_dt, end_dt) in enumerate(time_intervals):`
+
+1.  **`time_intervals`**: Esta es una lista que contiene los periodos de tiempo que hay que descargar. Basado en el código, es una lista de tuplas, donde cada tupla es un par de fechas (inicio, fin).
+    ```
+    # time_intervals se ve algo así:
+    [
+        (datetime_inicio_1, datetime_fin_1),
+        (datetime_inicio_2, datetime_fin_2),
+        (datetime_inicio_3, datetime_fin_3),
+        ...
+    ]
+    ```
+
+2.  **`enumerate(...)`**: Esta es una función de Python que añade un contador a la iteración. En lugar de devolver solo el elemento de la lista, devuelve una tupla `(índice, elemento)`.
+    *   En la primera vuelta, devuelve: `(0, (datetime_inicio_1, datetime_fin_1))`
+    *   En la segunda vuelta, devuelve: `(1, (datetime_inicio_2, datetime_fin_2))`
+    *   Y así sucesivamente.
+
+3.  **`for i, (start_dt, end_dt) in ...`**: Esta es la parte de "desempaquetado" (unpacking). En cada vuelta del bucle, Python asigna los valores de la tupla generada por `enumerate` a las variables:
+    *   `i` toma el valor del índice (0, 1, 2, ...).
+    *   `(start_dt, end_dt)` toma el valor del elemento, que es la tupla de fechas `(datetime_inicio, datetime_fin)`.
+    *   Inmediatamente después, Python desempaqueta también esta segunda tupla, asignando el primer valor a `start_dt` y el segundo a `end_dt`.
+
+### En resumen:
+
+Esa línea te permite recorrer la lista de intervalos de tiempo y, en cada paso, tener automáticamente:
+*   Un contador `i` para saber en qué iteración estás (muy útil para los logs de progreso).
+*   Las fechas de inicio y fin en variables separadas (`start_dt` y `end_dt`) para usarlas directamente.
+
+Es la forma elegante de escribir esto:
+
+```python
+# Forma manual y más larga
+i = 0
+for interval in time_intervals:
+    start_dt = interval[0]
+    end_dt = interval[1]
+    
+    # ... tu código aquí ...
+    log.info(f"Descargando chunk {i+1}...")
+
+    i = i + 1
+```
+
+La línea con `enumerate` hace todo eso de forma más concisa y menos propensa a errores.
+</details>
