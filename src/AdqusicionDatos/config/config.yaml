@@ -1,0 +1,19 @@
+data_downloader:
+  limit: 1500
+
+preprocesamiento:
+  interpol_method: 'linear' # Método de interpolación para manejar NaN (e.g., 'linear', 'time', 'index', 'nearest', 'zero', 'slinear', 'quadratic', 'cubic')
+  indicadores:
+    SMA_short: 50
+    SMA_long: 200
+    RSI_length: 14
+    MACD_fast: 12
+    MACD_slow: 26
+    MACD_signal: 9
+    BB_length: 20
+    BB_std: 2
+
+output:
+  data_filename: 'data.csv'
+  metadata_filename: 'metadata.yaml'
+  scaler_filename: 'scaler.pkl'
