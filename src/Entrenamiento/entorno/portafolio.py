@@ -20,11 +20,7 @@ class Posicion:
     
     @property
     def tipo(self):
-        mapeo = {
-            'long': 1,
-            'short': -1
-        }
-        return mapeo.get(self._tipo, 0)  # Devuelve 0 si el tipo no está en el diccionario
+        return 1 if self._tipo == 'long' else -1
     @property
     def porcentaje_inv(self):
         return self._porcentaje_inv
@@ -72,7 +68,6 @@ class Portafolio:
         self.balance_inicial = config.portafolio.capital_inicial
         self.comision_prc = config.portafolio.comision
         self.slippage_prc = config.portafolio.slippage
-        self.porcentaje_margen_requerido = config.portafolio.margen_minimo
         self.apalancamiento = config.portafolio.apalancamiento
 
         self._historial_ordenes = pd.DataFrame(columns=['fecha', 'tipo', 'precio_entrada', 'precio_salida', 'PnL_realizado', 'comision', 'slippage', 'margen', 'episodio', 'reducir'])  # Lista de diccionarios
@@ -82,34 +77,34 @@ class Portafolio:
     def reset(self):
                 # Propiedades del portafolio
         self._balance = self.balance_inicial # Es el dinero líquido disponible
-        self._equity = self.balance_inicial # Es el valor total del portafolio (balance + PnL no realizado)
         self._posicion_abierta = None  # Instancia de la clase Posición o None si no hay posición abierta
     
-    def abrir_posición(self, tipo: str, precio: float, porcentaje_inversion: float) -> bool:
+    def abrir_posicion(self, tipo: str, precio: float, porcentaje_inversion: float) -> bool:
         """Abre una nueva posición si hay suficiente margen."""
-        # Calcular la cantidad a invertir
+        # 1. Calcular la cantidad a invertir
         cantidad = self._calcular_cantidad_invertir(precio, porcentaje_inversion)
 
-        # Calcular el margen inmediato
-        margen_inmediato = self._calcular_margen(precio, cantidad, self.porcentaje_margen_requerido)
+        # 2. Calcular el margen requerido para la operación (la "fianza")
+        margen_inmediato = self._calcular_margen(precio, cantidad)
         
-        # Calcular la comisión y el slippage
+        # 3. Calcular los costos de transacción
         comision, slippage = self._calcular_comision_slippage(precio, cantidad)
 
-        # Balance actualizado tras abrir la posición
-        balance_actualizado = self._balance - (margen_inmediato + comision + slippage) - cantidad * precio
-        # Confirmar que el margen total es menor que el balance
-        if balance_actualizado < 0:
-            return False
+        # 4. Calcular el costo total real para abrir la posición
+        costo_total_apertura = margen_inmediato + comision + slippage
 
-        # Crear la posición
+        # 5. Verificar si el balance líquido es suficiente para cubrir el costo
+        if self._balance < costo_total_apertura:
+            return False # No hay suficiente capital líquido
+
+        # 6. Crear la posición
         self._posicion_abierta = Posicion(
             tipo=tipo, precio=precio, cantidad=cantidad, fecha=pd.Timestamp.now(),
             comision=comision, slippage=slippage, margen=margen_inmediato, porcentaje_inv=porcentaje_inversion
         )
 
-        # Actualizar el balance
-        self._balance = balance_actualizado
+        # 7. Actualizar el balance restando ÚNICAMENTE el costo de apertura
+        self._balance -= costo_total_apertura
 
         return True
 
@@ -122,19 +117,21 @@ class Portafolio:
         # --- Cálculos para la parte adicional ---
         cantidad_adicional = self._calcular_cantidad_invertir(precio, porcentaje_inversion_adicional)
         
-        margen_adicional = self._calcular_margen(precio, cantidad_adicional, self.porcentaje_margen_requerido)
+        margen_adicional = self._calcular_margen(precio, cantidad_adicional)
         comision_adicional, slippage_adicional = self._calcular_comision_slippage(precio, cantidad_adicional)
 
         # --- Verificación de balance ---
-        costos_totales = margen_adicional + comision_adicional + slippage_adicional
-        impacto_operacion = cantidad_adicional * precio
+        # El costo real es solo el margen adicional y los costos de transacción
+        costos_totales_adicionales = margen_adicional + comision_adicional + slippage_adicional
         
-        if self._balance < (costos_totales + impacto_operacion):
+        # CORRECTO: Se comprueba si el balance puede cubrir el costo real
+        if self._balance < costos_totales_adicionales:
             return False  # No hay suficiente balance
 
         # --- Actualización del estado del portafolio ---
         # 1. Actualizar balance
-        self._balance -= (costos_totales + impacto_operacion)
+        # CORRECTO: Se resta únicamente el costo real
+        self._balance -= costos_totales_adicionales
 
         # 2. Actualizar los atributos de la posición
         nueva_cantidad = self._posicion_abierta.cantidad + cantidad_adicional
@@ -152,18 +149,23 @@ class Portafolio:
 
     def reducir_posicion(self, precio: float, porcentaje_a_reducir: float, episodio: int) -> bool:
         """Reduce una parte de la posición, realizando el PnL parcial."""
-        # PORCENTAJE A REDUCIR NO ES NEGATIVO
         if self._posicion_abierta is None or porcentaje_a_reducir <= 0:
             return False
         
+        # Si se intenta reducir el 100% o más, simplemente cerramos la posición completa.
+        if porcentaje_a_reducir >= 1.0:
+            self.cerrar_posicion(precio, episodio)
+            return True
+
         # --- Cálculos para la parte a reducir ---
-        # La cantidad a reducir será positiva para los cálculos
-        cantidad_a_reducir = self._calcular_cantidad_invertir(precio, porcentaje_a_reducir)
+        # CORRECTO: La cantidad a reducir es un porcentaje de la cantidad de la posición existente.
+        cantidad_a_reducir = self._posicion_abierta.cantidad * porcentaje_a_reducir
 
         # Calcular PnL realizado para la parte que se cierra
         pnl_parcial_realizado = (self._posicion_abierta.tipo * (precio - self._posicion_abierta.precio) * cantidad_a_reducir)
+        
         # Calcular margen a liberar (basado en el precio de entrada original de esa parte)
-        margen_liberado = self._calcular_margen(self._posicion_abierta.precio, cantidad_a_reducir, self.porcentaje_margen_requerido)
+        margen_liberado = self._calcular_margen(self._posicion_abierta.precio, cantidad_a_reducir)
         
         comision_reduccion, slippage_reduccion = self._calcular_comision_slippage(precio, cantidad_a_reducir)
 
@@ -178,7 +180,10 @@ class Portafolio:
         self._posicion_abierta.margen -= margen_liberado
         self._posicion_abierta.comision += comision_reduccion # Las comisiones de transacciones siempre se suman
         self._posicion_abierta.slippage += slippage_reduccion
-        self._posicion_abierta.porcentaje_inv -= porcentaje_a_reducir
+        
+        # Actualizamos el porcentaje invertido total. Esto es una aproximación, ya que el % original se basaba en otro equity.
+        # Una forma más precisa sería recalcularlo, pero restarlo es una simplificación aceptable.
+        self._posicion_abierta.porcentaje_inv *= (1 - porcentaje_a_reducir)
 
         # Opcional: Registrar esta reducción como una operación en el historial
         self._registrar_orden_en_historial(precio, pnl_parcial_realizado, episodio, reducir=True)
@@ -190,23 +195,26 @@ class Portafolio:
         if self._posicion_abierta is None:
             return False, 0.0  # No hay posición abierta para cerrar.
         
-        # Calcular el PnL realizado
+        # 1. Calcular el PnL realizado
         PnL_realizado = self.calcular_PnL_no_realizado(precio_cierre)
 
-        # Registrar la orden en el historial
+        # 2. Guardar los datos necesarios ANTES de cerrar la posición
+        margen_a_liberar = self._posicion_abierta.margen
+        
+        # 3. Registrar la orden en el historial (aún necesita la posición abierta)
         self._registrar_orden_en_historial(precio_cierre, PnL_realizado, episodio)
 
-        # Actualizar el balance
-        self._balance += PnL_realizado + self._posicion_abierta.margen
-
-        # Cerrar la posición
+        # 4. Ahora sí, cerrar la posición (la destruimos)
         self._posicion_abierta = None
 
+        # 5. Actualizar el balance usando las variables guardadas
+        self._balance += PnL_realizado + margen_a_liberar
+
         return True, PnL_realizado
-    
-    def _calcular_margen(self, precio: float, cantidad: float, porcentaje_margen_requerido: float) -> float:
+
+    def _calcular_margen(self, precio: float, cantidad: float) -> float:
         """Calcula el margen requerido para abrir una posición."""
-        return (precio * cantidad * porcentaje_margen_requerido) / self.apalancamiento
+        return (precio * cantidad) / self.apalancamiento
     
     def _calcular_comision_slippage(self, precio: float, cantidad: float) -> tuple:
         """Calcula la comisión y el slippage de una operación"""
@@ -232,7 +240,7 @@ class Portafolio:
         PnL_no_realizado = (precio_actual - precio_entrada) * cantidad * direccion
         return PnL_no_realizado
     
-    def _calcular_max_drawdown(self, precio_actual: float, episodio: int) -> float:
+    def calcular_max_drawdown(self, precio_actual: float, episodio: int) -> float:
         """Calcula el max drawdown actual del portafolio."""
         # calcular máscara Boleana para filtrar por episodio
         mascara = self._historial_portafolio['episodio'] == episodio
@@ -244,7 +252,7 @@ class Portafolio:
         if historial_filtrado.empty or pico_maximo == 0:
             return 0.0
         
-        equity_actual = self._get_equity(precio_actual)
+        equity_actual = self.get_equity(precio_actual)
 
         return (pico_maximo - equity_actual) / pico_maximo
     
@@ -273,14 +281,14 @@ class Portafolio:
         nuevo_registro = {
             'timestamp': pd.Timestamp.now(),
             'balance': self._balance,
-            'equity': self._get_equity(precio_actual),
-            'max_drawdown': self._calcular_max_drawdown(precio_actual, episodio),
+            'equity': self.get_equity(precio_actual),
+            'max_drawdown': self.calcular_max_drawdown(precio_actual, episodio),
             'episodio': episodio
         }
         # Añadir el nuevo registro al DataFrame
         self._historial_portafolio = pd.concat([self._historial_portafolio, pd.DataFrame([nuevo_registro])], ignore_index=True)
 
-    def _get_equity(self, precio_actual: float) -> float:
+    def get_equity(self, precio_actual: float) -> float:
         """
         Calcula y devuelve el valor total del portafolio (equity) en tiempo real.
         Equity = Balance Líquido + Margen en Uso + PnL No Realizado.
@@ -294,3 +302,7 @@ class Portafolio:
         margen_en_uso = self._posicion_abierta.margen
         
         return self._balance + margen_en_uso + pnl_no_realizado
+    
+    @property
+    def posicion_abierta(self):
+        return self._posicion_abierta

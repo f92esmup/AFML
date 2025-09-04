@@ -14,7 +14,10 @@ class PortafolioConfig(BaseModel):
     apalancamiento: float = Field(..., gt=0, description="Nivel de apalancamiento permitido.")
     comision: float = Field(..., ge=0, le=0.1, description="Comisión por operación (fracción del 1).")
     slippage: float = Field(..., ge=0, le=0.1, description="Slippage por operación (fracción del 1).")
-    margen_minimo: float = Field(..., gt=0, le=1, description="Porcentaje mínimo de margen requerido (fracción del 1).")
+
+class EntornoConfig(BaseModel):
+    """ Configuración del entorno de entrenamiento. """
+    window_size: int = Field(..., gt=0, description="Número de velas en la ventana de observación.")
 
 class DataDownloaderConfig(BaseModel):
     """ Configuración del descargador de datos. """
@@ -28,6 +31,7 @@ class OutputConfig(BaseModel):
 
 class Config(BaseModel):
     portafolio: PortafolioConfig
+    entorno: EntornoConfig
 
     @classmethod
     def load_config(cls, args: argparse.Namespace) -> "Config":
