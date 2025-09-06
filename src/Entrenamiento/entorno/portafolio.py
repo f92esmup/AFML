@@ -77,6 +77,7 @@ class Portafolio:
     def reset(self):
                 # Propiedades del portafolio
         self._balance = self.balance_inicial # Es el dinero líquido disponible
+        #  Habría que cerrar la posicion si hay una activa no? 
         self._posicion_abierta = None  # Instancia de la clase Posición o None si no hay posición abierta
     
     def abrir_posicion(self, tipo: str, precio: float, porcentaje_inversion: float) -> bool:
@@ -107,8 +108,26 @@ class Portafolio:
         self._balance -= costo_total_apertura
 
         return True
+    
+    def modificar_posicion(self, precio: float, porcentaje_inversion: float, episodio: int) -> bool:
+        """Modifica la posición abierta, ya sea aumentando o reduciendo. y determina el tipo de modificación."""
+        # Si no hay posición abierta, no se puede modificar
+        if self._posicion_abierta is None:
+            return False
+        
+        if porcentaje_inversion > self._posicion_abierta.porcentaje_inv:
+            # Aumentar posición
+            incremento = porcentaje_inversion - self._posicion_abierta.porcentaje_inv
+            return self._aumentar_posicion(precio, incremento)
+        elif porcentaje_inversion < self._posicion_abierta.porcentaje_inv:
+            # Reducir posición
+            reduccion = self._posicion_abierta.porcentaje_inv - porcentaje_inversion
+            return self._reducir_posicion(precio, reduccion, episodio)
+        else:
+            # No hay cambio en el porcentaje de inversión
+            return False
 
-    def aumentar_posicion(self, precio: float, porcentaje_inversion_adicional: float) -> bool:
+    def _aumentar_posicion(self, precio: float, porcentaje_inversion_adicional: float) -> bool:
         """Añade capital a una posición existente, promediando el precio."""
         # EL porcentaje debe ser el incremento, no el total
         if self._posicion_abierta is None or porcentaje_inversion_adicional <= 0:
@@ -147,7 +166,7 @@ class Portafolio:
         
         return True
 
-    def reducir_posicion(self, precio: float, porcentaje_a_reducir: float, episodio: int) -> bool:
+    def _reducir_posicion(self, precio: float, porcentaje_a_reducir: float, episodio: int) -> bool:
         """Reduce una parte de la posición, realizando el PnL parcial."""
         if self._posicion_abierta is None or porcentaje_a_reducir <= 0:
             return False

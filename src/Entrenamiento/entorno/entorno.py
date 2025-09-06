@@ -30,12 +30,14 @@ class TradingEnv(gym.Env):
         self.factor_aversion_riesgo = config.entorno.factor_aversion_riesgo
         self.umbral_manterner_posicion = config.entorno.umbral_manter_posicion
 
+        # Parámetros de control para aplicar la recompensa
+        # 
     def _construir_espacios(self):
         """Construye los espacios de observación y acción."""
         # EL espacio de observación será una matriz con los datos de las últimas N velas
         # y el estado ACTUAL del portafolio (PnL no realizado, posición abierta) 
         self.observation_space = spaces.Box(
-            low=np.inf,
+            low=-np.inf,
             high=np.inf,
             shape=(self.window_size, self.data.shape[1] + 2), # Shape devuelve el (nº filas, nº columnas).
             dtype=np.float32
@@ -49,10 +51,24 @@ class TradingEnv(gym.Env):
             dtype=np.float32
         )
 
-    #def reset(self):
-        
+    def reset(self, seed=None, options=None):
+        """ Reinicia el entorno para un nuevo episodio de entrenamiento."""
+        super().reset(seed=seed)
+        self.paso_actual = self.window_size - 1
+        self.episodio += 1
+        self.portafolio.reset()
 
-    def step(self, accion: np.ndarray) -> Tuple:
+        precio_inicial = self.data.iloc[self.paso_actual]['close']
+        equity_inicial = self.portafolio.get_equity(precio_inicial)
+
+        observacion = self._get_observation(equity_inicial)
+        
+        info = {'status': 'Entorno reiniciado'}
+        return observacion, info
+
+    
+
+    def step(self, action: np.ndarray) -> Tuple:
         """ Ejecución de un paso en el entorno.
         Para conocer el efecto de una acción, necesitamos conocer el instante actual t y el siguiente t+1.
         """
@@ -61,7 +77,7 @@ class TradingEnv(gym.Env):
         precio_actual = self.data.iloc[self.paso_actual]['close']
 
         # 1. Ejecutar la acción del instante t:
-        self._ejecutar_accion(accion[0], precio_actual)
+        self._ejecutar_action(action[0], precio_actual)
 
         # Avanzamos en el tiempo t --> t + 1
         self.paso_actual += 1
@@ -94,7 +110,7 @@ class TradingEnv(gym.Env):
         info = {
             'recompensa': recompensa,
             'paso': self.paso_actual,
-            'accion': accion
+            'action': action[0]
         }
 
         return observacion, recompensa, terminated, truncated, info
@@ -147,7 +163,7 @@ class TradingEnv(gym.Env):
         recompensa_normalizada = recompensa / equity
         return recompensa_normalizada
 
-    def _ejecutar_accion(self, accion: float, precio: float):
+    def _ejecutar_action(self, action: float, precio: float) -> bool:
         """ Ejecuta la acción en el portafolio. """
         # La acción es un valor continuo entre -1 y 1
         # -1: Vender todo (posición corta máxima)
@@ -156,23 +172,40 @@ class TradingEnv(gym.Env):
 
         #  La primera capa de if determina el tipo de posicion a tomar
         # La segunda capa de if determina si se abre una nueva posición o se cierra la actual
-        if accion > self.umbral_manterner_posicion:
+        resultado = False
+        if action > self.umbral_manterner_posicion:
             tipo_posicion = 'long'
 
             if self.portafolio.posicion_abierta is None:
                 """ No hay posición abierta, abrir una nueva posición larga """
-                resultado = self.portafolio.abrir_posicion(tipo=tipo_posicion, precio=precio, porcentaje_inversion=accion)
+                resultado = self.portafolio.abrir_posicion(tipo=tipo_posicion, precio=precio, porcentaje_inversion=action)
             elif self.portafolio.posicion_abierta.tipo == -1:
                 """ Hay una posición corta abierta, cerrarla """
-                resultado = self.portafolio.cerrar_posicion(precio_cierre=precio, episodio=self.episodio)
+                resultado, _ = self.portafolio.cerrar_posicion(precio_cierre=precio, episodio=self.episodio)
+
+                # Abrir una nueva posición larga
+                resultado = self.portafolio.abrir_posicion(tipo=tipo_posicion, precio=precio, porcentaje_inversion=action)
+
             elif self.portafolio.posicion_abierta.tipo == 1:
                 """ Ya hay una posición larga abierta, reducir o aumentar la posición """
-
-                      
-
-
-        elif accion < -self.umbral_manterner_posicion:
+                resultado = self.portafolio.modificar_posicion(precio=precio, porcentaje_inversion=action, episodio=self.episodio)
+        elif action < -self.umbral_manterner_posicion:
             tipo_posicion = 'short'
+
+            if self.portafolio.posicion_abierta is None:
+                """ No hay posición abierta, abrir una nueva posición corta """
+                resultado = self.portafolio.abrir_posicion(tipo=tipo_posicion, precio=precio, porcentaje_inversion=action)
+            elif self.portafolio.posicion_abierta.tipo == 1:
+                """ Hay una posición larga abierta, cerrarla """
+                resultado, _ = self.portafolio.cerrar_posicion(precio_cierre=precio, episodio=self.episodio)
+
+                # Abrir una nueva posición corta
+                resultado = self.portafolio.abrir_posicion(tipo=tipo_posicion, precio=precio, porcentaje_inversion=action)
+            elif self.portafolio.posicion_abierta.tipo == -1:
+                """ Ya hay una posición corta abierta, reducir o aumentar la posición """
+                resultado = self.portafolio.modificar_posicion(precio=precio, porcentaje_inversion=action, episodio=self.episodio)
         
         else:
             pass # Mantener la posición actual (no hacer nada)
+
+        return resultado
