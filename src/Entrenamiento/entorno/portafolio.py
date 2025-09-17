@@ -4,7 +4,7 @@ from src.Entrenamiento.config import Config
 from typing import Tuple
 
 class Posicion:
-    def __init__(self, tipo: str, precio: float, cantidad: float, fecha, comision: float, slippage:float, margen: float, porcentaje_inv: float)-> None:
+    def __init__(self, tipo: str, precio: float, cantidad: float, fecha: pd.Timestamp, velas: int, comision: float, slippage:float, margen: float, porcentaje_inv: float)-> None:
         if tipo not in ['long', 'short']:
             raise ValueError("El tipo de posición debe ser 'long' o 'short'")
         
@@ -12,7 +12,7 @@ class Posicion:
         self._precio = precio
         self._cantidad = cantidad
         self._fecha = fecha
-        # COmprobar si el stoploss es adecuado.
+        self._velas = velas
         self._comision = comision
         self._slippage = slippage
         self._margen = margen
@@ -43,6 +43,12 @@ class Posicion:
     def fecha(self):
         return self._fecha
     @property
+    def velas(self):
+        return self._velas
+    @velas.setter
+    def velas(self, valor: int) -> None:
+        self._velas = valor
+    @property
     def comision(self):
         return self._comision
     @comision.setter
@@ -61,7 +67,6 @@ class Posicion:
     def margen(self, valor: float)-> None:
         self._margen = valor
     
-# HAY ALGO QUE NO ESTOY TENIENDO EN CUENTA. YO LAS POSICOINES LAS ACTUALIZO CON RECOMPRAR,PROMEDIANDO EL PRECIO POR LO QUE EN LA PRACTICA SIIMRPE HAY UNA ÚNICA POSICIÓN ABIERTA
 class Portafolio:
     def __init__(self, config: Config) -> None:
         # Variables de configuración
@@ -70,14 +75,14 @@ class Portafolio:
         self.slippage_prc = config.portafolio.slippage
         self.apalancamiento = config.portafolio.apalancamiento
 
-        self._historial_ordenes = pd.DataFrame(columns=['fecha', 'tipo', 'precio_entrada', 'precio_salida', 'PnL_realizado', 'comision', 'slippage', 'margen', 'episodio', 'reducir'])  # Lista de diccionarios
+        self._historial_ordenes = pd.DataFrame(columns=['fecha', 'tipo', 'precio_entrada', 'precio_salida', 'numerovelas', 'PnL_realizado', 'comision', 'slippage', 'margen', 'episodio', 'reducir'])  # Lista de diccionarios
         self._historial_portafolio = pd.DataFrame(columns=['timestamp', 'balance', 'equity', 'max_drawdown', 'episodio'])  # DataFrame para el historial del portafolio
         self.reset()
 
     def reset(self):
-                # Propiedades del portafolio
+        # Propiedades del portafolio
         self._balance = self.balance_inicial # Es el dinero líquido disponible
-        #  Habría que cerrar la posicion si hay una activa no? 
+        #  Habría que cerrar la posicion si hay una activa no? Aunque el asignar el None en python ya es suficiente para eliminar la referencia
         self._posicion_abierta = None  # Instancia de la clase Posición o None si no hay posición abierta
     
     def abrir_posicion(self, tipo: str, precio: float, porcentaje_inversion: float) -> bool:
@@ -100,7 +105,7 @@ class Portafolio:
 
         # 6. Crear la posición
         self._posicion_abierta = Posicion(
-            tipo=tipo, precio=precio, cantidad=cantidad, fecha=pd.Timestamp.now(),
+            tipo=tipo, precio=precio, cantidad=cantidad, fecha=pd.Timestamp.now(), velas = 0,
             comision=comision, slippage=slippage, margen=margen_inmediato, porcentaje_inv=porcentaje_inversion
         )
 
@@ -285,6 +290,7 @@ class Portafolio:
             'tipo': self._posicion_abierta.tipo,
             'precio_entrada': self._posicion_abierta.precio,
             'precio_salida': precio_cierre,
+            'numerovelas': self._posicion_abierta.velas,
             'PnL_realizado': PnL_realizado,
             'comision': self._posicion_abierta.comision,
             'slippage': self._posicion_abierta.slippage,
@@ -321,6 +327,11 @@ class Portafolio:
         margen_en_uso = self._posicion_abierta.margen
         
         return self._balance + margen_en_uso + pnl_no_realizado
+    
+    def conteovelas(self) -> None:
+        """ Aumenta el contador del núnmero de velas que lleva abierta una operación"""
+        if self._posicion_abierta is not None:
+            self._posicion_abierta.velas += 1
     
     @property
     def posicion_abierta(self):

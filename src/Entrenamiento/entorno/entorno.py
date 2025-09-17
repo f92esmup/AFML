@@ -45,13 +45,13 @@ class TradingEnv(gym.Env):
 
         # EL espacio de acción será un valor continuo entre -1 y 1
         self.action_space = spaces.Box(
-            low=-1,
-            high=1,
+            low=-1.0,
+            high=1.0,
             shape=(1,), 
             dtype=np.float32
         )
 
-    def reset(self, seed=None, options=None):
+    def reset(self, *, seed=None, options=None):
         """ Reinicia el entorno para un nuevo episodio de entrenamiento."""
         super().reset(seed=seed)
         self.paso_actual = self.window_size - 1
@@ -124,8 +124,9 @@ class TradingEnv(gym.Env):
         ventana_datos = self.data.iloc[start:end].values
         
         # 2. Normalizar los datos del mercado usando el scaler pre-ajustado
-        ventana_datos_normalizados = self.scaler.transform(ventana_datos)
-
+        #ventana_datos_normalizados = self.scaler.transform(ventana_datos)
+        # Usanmos Vecnormalizer para normalizar la observación
+        
         # 3. Calcular el PnL no realizado
         precio_actual = self.data.iloc[self.paso_actual]['close']
         pnl_no_realizado = self.portafolio.calcular_PnL_no_realizado(precio_actual)
