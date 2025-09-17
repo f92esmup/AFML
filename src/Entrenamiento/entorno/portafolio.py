@@ -1,4 +1,10 @@
-""" Simulador de un portafolio de inversiones"""
+""" Simulador de un portafolio de inversiones.
+
+En este script nos encontramos con la clase Portafolio, que gestiona
+las operaciones de trading, el balance, el equity y el historial de
+operaciones. También incluye la clase Posicion para modelar una
+operación abierta.
+"""
 import pandas as pd
 from src.Entrenamiento.config import Config 
 from typing import Tuple
@@ -120,13 +126,15 @@ class Portafolio:
         if self._posicion_abierta is None:
             return False
         
-        if porcentaje_inversion > self._posicion_abierta.porcentaje_inv:
+        porcentaje_inv_actual = self._posicion_abierta.porcentaje_inv
+
+        if porcentaje_inversion > porcentaje_inv_actual:
             # Aumentar posición
-            incremento = porcentaje_inversion - self._posicion_abierta.porcentaje_inv
+            incremento = porcentaje_inversion - porcentaje_inv_actual
             return self._aumentar_posicion(precio, incremento)
-        elif porcentaje_inversion < self._posicion_abierta.porcentaje_inv:
+        elif porcentaje_inversion < porcentaje_inv_actual:
             # Reducir posición
-            reduccion = self._posicion_abierta.porcentaje_inv - porcentaje_inversion
+            reduccion = porcentaje_inv_actual - porcentaje_inversion
             return self._reducir_posicion(precio, reduccion, episodio)
         else:
             # No hay cambio en el porcentaje de inversión
@@ -172,18 +180,21 @@ class Portafolio:
         return True
 
     def _reducir_posicion(self, precio: float, porcentaje_a_reducir: float, episodio: int) -> bool:
-        """Reduce una parte de la posición, realizando el PnL parcial."""
+        """
+        Reduce una parte de la posición, realizando el PnL parcial.
+        El porcentaje a reducir se basa en el equity, de forma simétrica a _aumentar_posicion.
+        """
         if self._posicion_abierta is None or porcentaje_a_reducir <= 0:
             return False
         
-        # Si se intenta reducir el 100% o más, simplemente cerramos la posición completa.
-        if porcentaje_a_reducir >= 1.0:
+        # --- Cálculos para la parte a reducir ---
+        # CORRECTO: La cantidad a reducir se calcula de forma simétrica a como se aumenta.
+        cantidad_a_reducir = self._calcular_cantidad_invertir(precio, porcentaje_a_reducir)
+
+        # Si la cantidad a reducir es mayor o igual a la posición actual, se cierra por completo.
+        if cantidad_a_reducir >= self._posicion_abierta.cantidad:
             self.cerrar_posicion(precio, episodio)
             return True
-
-        # --- Cálculos para la parte a reducir ---
-        # CORRECTO: La cantidad a reducir es un porcentaje de la cantidad de la posición existente.
-        cantidad_a_reducir = self._posicion_abierta.cantidad * porcentaje_a_reducir
 
         # Calcular PnL realizado para la parte que se cierra
         pnl_parcial_realizado = (self._posicion_abierta.tipo * (precio - self._posicion_abierta.precio) * cantidad_a_reducir)
@@ -205,9 +216,8 @@ class Portafolio:
         self._posicion_abierta.comision += comision_reduccion # Las comisiones de transacciones siempre se suman
         self._posicion_abierta.slippage += slippage_reduccion
         
-        # Actualizamos el porcentaje invertido total. Esto es una aproximación, ya que el % original se basaba en otro equity.
-        # Una forma más precisa sería recalcularlo, pero restarlo es una simplificación aceptable.
-        self._posicion_abierta.porcentaje_inv *= (1 - porcentaje_a_reducir)
+        # Actualizamos el porcentaje invertido total.
+        self._posicion_abierta.porcentaje_inv -= porcentaje_a_reducir
 
         # Opcional: Registrar esta reducción como una operación en el historial
         self._registrar_orden_en_historial(precio, pnl_parcial_realizado, episodio, reducir=True)
@@ -248,7 +258,9 @@ class Portafolio:
     
     def _calcular_cantidad_invertir(self, precio: float, porcentaje_inversion: float) -> float:
         """Calcula la cantidad a invertir basada en un porcentaje del balance y el tipo de operación."""
-        return (self._balance * self.apalancamiento * porcentaje_inversion) / precio
+        equity_actual = self.get_equity(precio)
+
+        return (equity_actual * self.apalancamiento * porcentaje_inversion) / precio
     
     def calcular_PnL_no_realizado(self, precio_actual: float) -> float:
         """Calcula el PnL no realizado de una operación."""
