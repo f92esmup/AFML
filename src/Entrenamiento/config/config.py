@@ -18,6 +18,10 @@ class PortafolioConfig(BaseModel):
 class EntornoConfig(BaseModel):
     """ Configuración del entorno de entrenamiento. """
     window_size: int = Field(..., gt=0, description="Número de velas en la ventana de observación.")
+    max_drawdown_permitido: float = Field(..., gt=0, lt=1, description="Máximo drawdown permitido antes de terminar el episodio.")
+    factor_aversion_riesgo: float = Field(..., gt=1, description="Factor de aversión al riesgo para la recompensa.")
+    umbral_mantener_posicion: float = Field(..., gt=0, lt=1, description="Umbral para mantener la posición actual.")
+    directorio_salida: str = Field(..., description="Directorio donde se guardarán los resultados.")
 
 class DataDownloaderConfig(BaseModel):
     """ Configuración del descargador de datos. """

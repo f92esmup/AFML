@@ -345,6 +345,11 @@ class Portafolio:
         if self._posicion_abierta is not None:
             self._posicion_abierta.velas += 1
     
+    def guardar_historial(self, directorio_salida: str) -> None:
+        """ Guarda los historiales en archivos CSV. """
+        self._historial_ordenes.to_csv(f"{directorio_salida}/historial_ordenes.csv", index=False)
+        self._historial_portafolio.to_csv(f"{directorio_salida}/historial_portafolio.csv", index=False)
+
     @property
     def posicion_abierta(self):
         return self._posicion_abierta
