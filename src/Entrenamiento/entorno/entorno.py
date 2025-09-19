@@ -82,7 +82,7 @@ class TradingEnv(gym.Env):
         truncated = self.paso_actual >= len(self.data) -1
 
         if truncated:
-            observacion = np.zeros(self.observation_space.shape, dtype=np.float32)
+            observacion = np.zeros(self.observation_space.shape, dtype=np.float32) #type: ignore
             recompensa = 0
             terminated = False # No es un fallo, solo se acabaron los datos.
             info = {'status': 'Fin de los datos'}

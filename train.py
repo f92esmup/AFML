@@ -1,0 +1,2 @@
+""" Script principal para entrenar el sistema de Trading. Usando Walk-Forward Analysis. PERO ajustable a un entrenamiento normal. """
+Debo crear el sistema / estructura de que va a ir en cada scrip de estos
