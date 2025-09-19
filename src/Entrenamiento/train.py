@@ -1,0 +1,1 @@
+""" Script para entrenar el sistema de Trading."""

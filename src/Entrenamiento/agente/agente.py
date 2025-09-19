@@ -1,7 +1,8 @@
 """ Agente de aprendizaje por refuerzo. """
 import gymnasium as gym
 from stable_baselines3 import SAC
-from stable_baselines3.common.noise import NormalActionNoise
+from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
+from stable_baselines3.common.evaluation import evaluate_policy
 import torch as th
 from src.Entrenamiento.config import Config
 
@@ -10,10 +11,24 @@ class AgenteSac:
     def __init__(self, config: Config):
         """ Inicializa los parámetros del agente SAC. """
         self.model = None
-        # Configuración SAC:
+        self.vec_env = None  # Entorno vectorizado + normalizado
+        self.config = config
 
-    def CrearModelo(self, env: gym.Env, ):
-        """ Crea el modelo del agente SAC. """
+    def CrearModelo(self, env: gym.Env):
+        """ Crea el modelo del agente SAC con normalización de observaciones y recompensas. """
+
+        # 1) Vectorizar el entorno
+        venv = DummyVecEnv([lambda: env])
+
+        # 2) Normalizar observaciones y recompensas
+        #    Nota: gamma aquí debe coincidir con el gamma del algoritmo para la normalización de retornos.
+        self.vec_env = VecNormalize(
+            venv,
+            norm_obs=True,
+            norm_reward=True,
+            clip_obs=10.0,
+            gamma=0.99,
+        )
 
         policy_kwargs = dict(
             net_arch=dict(
@@ -28,7 +43,7 @@ class AgenteSac:
 
         self.model = SAC(
             policy="MlpPolicy",                    # Tipo de política (MLP para observaciones vectoriales).
-            env=env,                               # Entorno Gym/Gymnasium.
+            env=self.vec_env,                     # Entorno Gym/Gymnasium normalizado.
             learning_rate=3e-4,                    # Tasa de aprendizaje del optimizador (Adam).
             buffer_size=1_000_000,                 # Tamaño del replay buffer (número de transiciones almacenadas).
             learning_starts=5_000,                 # Pasos de calentamiento antes de empezar a entrenar.
@@ -56,10 +71,14 @@ class AgenteSac:
             seed=42,                               # Semilla para reproducibilidad.
             device="auto",                         # Dispositivo de cómputo ("cpu", "cuda", o auto-detección).
         )
-    def train(self):
+
+    def train(self, total_timesteps: int):
         """ Entrena el agente SAC. """
-        self.model.learn(totlal_timesteps=self.total_timesteps)
-    def GuardarModelo(self):
-        """ Guarda el modelo entrenado. """
-    def evaluate(self):
-        """ Evalúa el modelo entrenado. """
+        self.model.learn(total_timesteps=total_timesteps)
+
+    def GuardarModelo(self, model_path: str, vecnorm_path: str):
+        """ Guarda el modelo y las estadísticas de normalización. """
+        if self.model is not None:
+            self.model.save(model_path)
+        if isinstance(self.vec_env, VecNormalize):
+            self.vec_env.save(vecnorm_path)
