@@ -2,7 +2,6 @@
 import gymnasium as gym
 from stable_baselines3 import SAC
 from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
-from stable_baselines3.common.evaluation import evaluate_policy
 import torch as th
 from src.Entrenamiento.config import Config
 
@@ -82,3 +81,8 @@ class AgenteSac:
             self.model.save(model_path)
         if isinstance(self.vec_env, VecNormalize):
             self.vec_env.save(vecnorm_path)
+
+    def close(self):
+        """ Cierra el entorno vectorizado. """
+        if self.vec_env is not None:
+            self.vec_env.close()

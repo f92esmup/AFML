@@ -21,7 +21,9 @@ class EntornoConfig(BaseModel):
     max_drawdown_permitido: float = Field(..., gt=0, lt=1, description="Máximo drawdown permitido antes de terminar el episodio.")
     factor_aversion_riesgo: float = Field(..., gt=1, description="Factor de aversión al riesgo para la recompensa.")
     umbral_mantener_posicion: float = Field(..., gt=0, lt=1, description="Umbral para mantener la posición actual.")
-    directorio_salida: str = Field(..., description="Directorio donde se guardarán los resultados.")
+
+class SACConfig(BaseModel):
+    """ Configuración del agente SAC. """
 
 class DataDownloaderConfig(BaseModel):
     """ Configuración del descargador de datos. """
