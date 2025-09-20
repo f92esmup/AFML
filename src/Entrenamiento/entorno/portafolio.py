@@ -81,15 +81,22 @@ class Portafolio:
         self.slippage_prc = config.portafolio.slippage
         self.apalancamiento = config.portafolio.apalancamiento
 
-        self._historial_ordenes = pd.DataFrame(columns=['fecha', 'tipo', 'precio_entrada', 'precio_salida', 'numerovelas', 'PnL_realizado', 'comision', 'slippage', 'margen', 'episodio', 'reducir'])  # Lista de diccionarios
-        self._historial_portafolio = pd.DataFrame(columns=['timestamp', 'balance', 'equity', 'max_drawdown', 'episodio'])  # DataFrame para el historial del portafolio
+        # Variables para tracking de métricas del episodio actual
+        self._equity_maximo_episodio = 0.0
+        self._operaciones_episodio = 0
+        self._pnl_total_episodio = 0.0
+        
         self.reset()
 
     def reset(self):
         # Propiedades del portafolio
         self._balance = self.balance_inicial # Es el dinero líquido disponible
-        #  Habría que cerrar la posicion si hay una activa no? Aunque el asignar el None en python ya es suficiente para eliminar la referencia
         self._posicion_abierta = None  # Instancia de la clase Posición o None si no hay posición abierta
+        
+        # Reset de métricas del episodio
+        self._equity_maximo_episodio = self.balance_inicial
+        self._operaciones_episodio = 0
+        self._pnl_total_episodio = 0.0
     
     def abrir_posicion(self, tipo: str, precio: float, porcentaje_inversion: float) -> bool:
         """Abre una nueva posición si hay suficiente margen."""
@@ -120,25 +127,27 @@ class Portafolio:
 
         return True
     
-    def modificar_posicion(self, precio: float, porcentaje_inversion: float, episodio: int) -> bool:
-        """Modifica la posición abierta, ya sea aumentando o reduciendo. y determina el tipo de modificación."""
+    def modificar_posicion(self, precio: float, porcentaje_inversion: float) -> Tuple[bool, dict]:
+        """Modifica la posición abierta, ya sea aumentando o reduciendo."""
         # Si no hay posición abierta, no se puede modificar
         if self._posicion_abierta is None:
-            return False
+            return False, {}
         
         porcentaje_inv_actual = self._posicion_abierta.porcentaje_inv
 
         if porcentaje_inversion > porcentaje_inv_actual:
             # Aumentar posición
             incremento = porcentaje_inversion - porcentaje_inv_actual
-            return self._aumentar_posicion(precio, incremento)
+            success = self._aumentar_posicion(precio, incremento)
+            info = {'tipo_operacion': 'aumento_posicion', 'incremento': incremento} if success else {}
+            return success, info
         elif porcentaje_inversion < porcentaje_inv_actual:
             # Reducir posición
             reduccion = porcentaje_inv_actual - porcentaje_inversion
-            return self._reducir_posicion(precio, reduccion, episodio)
+            return self._reducir_posicion(precio, reduccion)
         else:
             # No hay cambio en el porcentaje de inversión
-            return False
+            return False, {}
 
     def _aumentar_posicion(self, precio: float, porcentaje_inversion_adicional: float) -> bool:
         """Añade capital a una posición existente, promediando el precio."""
@@ -179,72 +188,94 @@ class Portafolio:
         
         return True
 
-    def _reducir_posicion(self, precio: float, porcentaje_a_reducir: float, episodio: int) -> bool:
+    def _reducir_posicion(self, precio: float, porcentaje_a_reducir: float) -> Tuple[bool, dict]:
         """
         Reduce una parte de la posición, realizando el PnL parcial.
         El porcentaje a reducir se basa en el equity, de forma simétrica a _aumentar_posicion.
         """
         if self._posicion_abierta is None or porcentaje_a_reducir <= 0:
-            return False
+            return False, {}
         
         # --- Cálculos para la parte a reducir ---
-        # CORRECTO: La cantidad a reducir se calcula de forma simétrica a como se aumenta.
         cantidad_a_reducir = self._calcular_cantidad_invertir(precio, porcentaje_a_reducir)
 
         # Si la cantidad a reducir es mayor o igual a la posición actual, se cierra por completo.
         if cantidad_a_reducir >= self._posicion_abierta.cantidad:
-            self.cerrar_posicion(precio, episodio)
-            return True
+            success, pnl, info = self.cerrar_posicion(precio)
+            return success, info
 
         # Calcular PnL realizado para la parte que se cierra
         pnl_parcial_realizado = (self._posicion_abierta.tipo * (precio - self._posicion_abierta.precio) * cantidad_a_reducir)
         
-        # Calcular margen a liberar (basado en el precio de entrada original de esa parte)
+        # Calcular margen a liberar
         margen_liberado = self._calcular_margen(self._posicion_abierta.precio, cantidad_a_reducir)
-        
         comision_reduccion, slippage_reduccion = self._calcular_comision_slippage(precio, cantidad_a_reducir)
 
-        # --- Actualización del estado del portafolio ---
-        # 1. Actualizar balance
-        self._balance += pnl_parcial_realizado
-        self._balance += margen_liberado
-        self._balance -= (comision_reduccion + slippage_reduccion)
+        # Crear información de la reducción
+        reduccion_info = {
+            'tipo_operacion': 'reduccion_parcial',
+            'tipo_posicion': 'long' if self._posicion_abierta.tipo == 1 else 'short',
+            'precio_entrada': self._posicion_abierta.precio,
+            'precio_salida': precio,
+            'cantidad_reducida': cantidad_a_reducir,
+            'cantidad_restante': self._posicion_abierta.cantidad - cantidad_a_reducir,
+            'pnl_parcial': pnl_parcial_realizado,
+            'comision_reduccion': comision_reduccion,
+            'slippage_reduccion': slippage_reduccion,
+            'margen_liberado': margen_liberado
+        }
 
-        # 2. Actualizar los atributos de la posición (el precio de entrada NO cambia)
+        # Actualizar métricas
+        self._operaciones_episodio += 1
+        self._pnl_total_episodio += pnl_parcial_realizado
+
+        # --- Actualización del estado del portafolio ---
+        self._balance += pnl_parcial_realizado + margen_liberado - (comision_reduccion + slippage_reduccion)
+
+        # Actualizar los atributos de la posición
         self._posicion_abierta.cantidad -= cantidad_a_reducir
         self._posicion_abierta.margen -= margen_liberado
-        self._posicion_abierta.comision += comision_reduccion # Las comisiones de transacciones siempre se suman
+        self._posicion_abierta.comision += comision_reduccion
         self._posicion_abierta.slippage += slippage_reduccion
-        
-        # Actualizamos el porcentaje invertido total.
         self._posicion_abierta.porcentaje_inv -= porcentaje_a_reducir
 
-        # Opcional: Registrar esta reducción como una operación en el historial
-        self._registrar_orden_en_historial(precio, pnl_parcial_realizado, episodio, reducir=True)
+        return True, reduccion_info
 
-        return True
-
-    def cerrar_posicion(self, precio_cierre: float, episodio: int) -> Tuple[bool, float]:
-        """Cierra la posición más antigua abierta."""
+    def cerrar_posicion(self, precio_cierre: float) -> Tuple[bool, float, dict]:
+        """Cierra la posición más antigua abierta y retorna información de la operación."""
         if self._posicion_abierta is None:
-            return False, 0.0  # No hay posición abierta para cerrar.
+            return False, 0.0, {}
         
         # 1. Calcular el PnL realizado
         PnL_realizado = self.calcular_PnL_no_realizado(precio_cierre)
 
-        # 2. Guardar los datos necesarios ANTES de cerrar la posición
-        margen_a_liberar = self._posicion_abierta.margen
-        
-        # 3. Registrar la orden en el historial (aún necesita la posición abierta)
-        self._registrar_orden_en_historial(precio_cierre, PnL_realizado, episodio)
+        # 2. Crear información de la operación para el info
+        operacion_info = {
+            'tipo_operacion': 'cierre_completo',
+            'tipo_posicion': 'long' if self._posicion_abierta.tipo == 1 else 'short',
+            'precio_entrada': self._posicion_abierta.precio,
+            'precio_salida': precio_cierre,
+            'cantidad': self._posicion_abierta.cantidad,
+            'velas_abiertas': self._posicion_abierta.velas,
+            'pnl_realizado': PnL_realizado,
+            'comision_total': self._posicion_abierta.comision,
+            'slippage_total': self._posicion_abierta.slippage,
+            'margen_usado': self._posicion_abierta.margen,
+            'fecha_apertura': self._posicion_abierta.fecha
+        }
 
-        # 4. Ahora sí, cerrar la posición (la destruimos)
+        # 3. Actualizar métricas del episodio
+        self._operaciones_episodio += 1
+        self._pnl_total_episodio += PnL_realizado
+
+        # 4. Guardar margen a liberar y cerrar posición
+        margen_a_liberar = self._posicion_abierta.margen
         self._posicion_abierta = None
 
-        # 5. Actualizar el balance usando las variables guardadas
+        # 5. Actualizar balance
         self._balance += PnL_realizado + margen_a_liberar
 
-        return True, PnL_realizado
+        return True, PnL_realizado, operacion_info
 
     def _calcular_margen(self, precio: float, cantidad: float) -> float:
         """Calcula el margen requerido para abrir una posición."""
@@ -276,54 +307,47 @@ class Portafolio:
         PnL_no_realizado = (precio_actual - precio_entrada) * cantidad * direccion
         return PnL_no_realizado
     
-    def calcular_max_drawdown(self, precio_actual: float, episodio: int) -> float:
-        """Calcula el max drawdown actual del portafolio."""
-        # calcular máscara Boleana para filtrar por episodio
-        mascara = self._historial_portafolio['episodio'] == episodio
-        historial_filtrado = self._historial_portafolio[mascara]
-
-        # Calcular el pico máximo del equity en el historial filtrado
-        pico_maximo = historial_filtrado['equity'].max()
-
-        if historial_filtrado.empty or pico_maximo == 0:
+    def calcular_max_drawdown(self, precio_actual: float) -> float:
+        """Calcula el max drawdown actual del episodio."""
+        equity_actual = self.get_equity(precio_actual)
+        
+        # Actualizar el equity máximo del episodio si corresponde
+        if equity_actual > self._equity_maximo_episodio:
+            self._equity_maximo_episodio = equity_actual
+        
+        # Calcular drawdown
+        if self._equity_maximo_episodio == 0:
             return 0.0
         
-        equity_actual = self.get_equity(precio_actual)
-
-        return (pico_maximo - equity_actual) / pico_maximo
+        return (self._equity_maximo_episodio - equity_actual) / self._equity_maximo_episodio
     
-    def _registrar_orden_en_historial(self, precio_cierre: float, PnL_realizado: float, episodio: int, reducir: bool = False) -> None:
-        """Registra una orden en el historial del portafolio."""
-        if self._posicion_abierta is None:
-            return
-
-        nueva_fila = {
-            'fecha': self._posicion_abierta.fecha,
-            'tipo': self._posicion_abierta.tipo,
-            'precio_entrada': self._posicion_abierta.precio,
-            'precio_salida': precio_cierre,
-            'numerovelas': self._posicion_abierta.velas,
-            'PnL_realizado': PnL_realizado,
-            'comision': self._posicion_abierta.comision,
-            'slippage': self._posicion_abierta.slippage,
-            'margen': self._posicion_abierta.margen,
-            'episodio': episodio,
-            'reducir': reducir  # Indica que esta orden es un cierre completo, no una reducción parcial
-        }
-        # Añadir la nueva fila al DataFrame
-        self._historial_ordenes = pd.concat([self._historial_ordenes, pd.DataFrame([nueva_fila])], ignore_index=True)
-
-    def _actualizar_historial_portafolio(self, precio_actual: float, episodio: int) -> None:
-        """Actualiza el historial del portafolio con el estado actual."""
-        nuevo_registro = {
-            'timestamp': pd.Timestamp.now(),
+    def get_info_portafolio(self, precio_actual: float) -> dict:
+        """Obtiene información completa del estado actual del portafolio para el info de gymnasium."""
+        equity_actual = self.get_equity(precio_actual)
+        max_drawdown = self.calcular_max_drawdown(precio_actual)
+        
+        info = {
             'balance': self._balance,
-            'equity': self.get_equity(precio_actual),
-            'max_drawdown': self.calcular_max_drawdown(precio_actual, episodio),
-            'episodio': episodio
+            'equity': equity_actual,
+            'max_drawdown': max_drawdown,
+            'equity_maximo_episodio': self._equity_maximo_episodio,
+            'operaciones_episodio': self._operaciones_episodio,
+            'pnl_total_episodio': self._pnl_total_episodio,
+            'posicion_abierta': self._posicion_abierta is not None,
         }
-        # Añadir el nuevo registro al DataFrame
-        self._historial_portafolio = pd.concat([self._historial_portafolio, pd.DataFrame([nuevo_registro])], ignore_index=True)
+        
+        if self._posicion_abierta is not None:
+            info.update({
+                'tipo_posicion': 'long' if self._posicion_abierta.tipo == 1 else 'short',
+                'precio_entrada_posicion': self._posicion_abierta.precio,
+                'cantidad_posicion': self._posicion_abierta.cantidad,
+                'velas_posicion_abierta': self._posicion_abierta.velas,
+                'pnl_no_realizado': self.calcular_PnL_no_realizado(precio_actual),
+                'margen_usado': self._posicion_abierta.margen,
+                'porcentaje_inversion': self._posicion_abierta.porcentaje_inv
+            })
+        
+        return info
 
     def get_equity(self, precio_actual: float) -> float:
         """
@@ -345,10 +369,7 @@ class Portafolio:
         if self._posicion_abierta is not None:
             self._posicion_abierta.velas += 1
     
-    def guardar_historial(self, directorio_salida: str) -> None:
-        """ Guarda los historiales en archivos CSV. """
-        self._historial_ordenes.to_csv(f"{directorio_salida}/historial_ordenes.csv", index=False)
-        self._historial_portafolio.to_csv(f"{directorio_salida}/historial_portafolio.csv", index=False)
+
 
     @property
     def posicion_abierta(self):
