@@ -12,13 +12,19 @@ class TradingEnv(gym.Env):
 
     def __init__(self, config: Config, data: pd.DataFrame, portafolio: Portafolio):
         super().__init__()
-        # Convertir a NumPy para mayor eficiencia
-        self.data_array = data.values.astype(np.float32)
+        # Separar columnas numéricas (excluir timestamp)
+        self.numeric_columns = [col for col in data.columns if col != 'timestamp']
+        
+        # Convertir solo columnas numéricas a NumPy para mayor eficiencia
+        self.data_array = data[self.numeric_columns].values.astype(np.float32)
         self.n_filas, self.n_columnas = self.data_array.shape
         
         # Crear un mapeo de nombres de columnas a índices para acceso rápido
-        self.column_map = {col: idx for idx, col in enumerate(data.columns)}
+        self.column_map = {col: idx for idx, col in enumerate(self.numeric_columns)}
         self.close_idx = self.column_map['close']
+        
+        # Guardar también los timestamps si son necesarios
+        self.timestamps = data['timestamp'].values if 'timestamp' in data.columns else None
 
         self.window_size = config.entorno.window_size
 
@@ -113,12 +119,13 @@ class TradingEnv(gym.Env):
         # Comprobar si se interrumpe el entrenamiento:
         terminated = self.portafolio.calcular_max_drawdown(precio_siguiente) >= self.max_drawdown_permitido
 
-        # Crear información completa para gymnasium
+        # Información optimizada para análisis y Power BI
         info = {
             'paso': self.paso_actual,
             'episodio': self.episodio,
+            'timestamp': self.timestamps[self.paso_actual] if self.timestamps is not None else None,
             'action': float(action[0]),
-            'precio_actual': precio_siguiente,
+            'precio': precio_siguiente,
             'recompensa': recompensa,
             'terminated': terminated,
             **operacion_info,
@@ -155,6 +162,22 @@ class TradingEnv(gym.Env):
         
         return observacion
 
+    def get_column_value(self, row_idx: int, column_name: str) -> float:
+        """Método auxiliar para obtener valores de columnas específicas por nombre."""
+        if column_name not in self.column_map:
+            raise ValueError(f"Columna '{column_name}' no encontrada. Columnas disponibles: {list(self.column_map.keys())}")
+        if not (0 <= row_idx < self.n_filas):
+            raise IndexError(f"Índice {row_idx} fuera de rango. Rango válido: 0-{self.n_filas-1}")
+        return self.data_array[row_idx, self.column_map[column_name]]
+    
+    def get_timestamp(self, row_idx: int):
+        """Obtener timestamp de una fila específica."""
+        if self.timestamps is not None:
+            if not (0 <= row_idx < len(self.timestamps)):
+                raise IndexError(f"Índice {row_idx} fuera de rango para timestamps")
+            return self.timestamps[row_idx]
+        return None
+
     def _recompensa(self, precio: float) -> float:
         """ Calcula la recompensa."""
         pnl_actual = self.portafolio.calcular_PnL_no_realizado(precio)
@@ -181,8 +204,8 @@ class TradingEnv(gym.Env):
 
             if self.portafolio.posicion_abierta is None:
                 """ No hay posición abierta, abrir una nueva posición larga """
-                resultado = self.portafolio.abrir_posicion(tipo=tipo_posicion, precio=precio, porcentaje_inversion=action)
-                operacion_info.update({'operacion': 'abrir_long', 'resultado': resultado})
+                resultado, info_apertura = self.portafolio.abrir_posicion(tipo=tipo_posicion, precio=precio, porcentaje_inversion=action)
+                operacion_info.update({'operacion': 'abrir_long', 'resultado': resultado, **info_apertura})
                 
             elif self.portafolio.posicion_abierta.tipo == -1:
                 """ Hay una posición corta abierta, cerrarla """
@@ -203,8 +226,8 @@ class TradingEnv(gym.Env):
 
             if self.portafolio.posicion_abierta is None:
                 """ No hay posición abierta, abrir una nueva posición corta """
-                resultado = self.portafolio.abrir_posicion(tipo=tipo_posicion, precio=precio, porcentaje_inversion=porcentaje_inversion)
-                operacion_info.update({'operacion': 'abrir_short', 'resultado': resultado})
+                resultado, info_apertura = self.portafolio.abrir_posicion(tipo=tipo_posicion, precio=precio, porcentaje_inversion=porcentaje_inversion)
+                operacion_info.update({'operacion': 'abrir_short', 'resultado': resultado, **info_apertura})
                 
             elif self.portafolio.posicion_abierta.tipo == 1:
                 """ Hay una posición larga abierta, cerrarla """
