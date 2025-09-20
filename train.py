@@ -4,6 +4,8 @@ import logging
 from typing import TYPE_CHECKING
 from argparse import Namespace
 import pandas as pd
+import yaml
+import os
 
 from src.AdqusicionDatos.utils.logger import setup_logger
 from src.Entrenamiento.config.cli import parse_args
@@ -128,12 +130,40 @@ class Entrenamiento:
             log.error("Detalles del error:", exc_info=True)
             raise
 
+    def _guardar_metadata(self) -> None:
+        """Guarda la configuración completa en un archivo YAML como metadata."""
+        try:
+            log.info("Guardando metadata de configuración...")
+            
+            # Convertir config a diccionario usando Pydantic
+            config_dict = self.config.model_dump()
+            
+            # Crear ruta del archivo metadata
+            metadata_path = os.path.join(self.config.Output.base_dir, "config_metadata.yaml")
+            
+            # Asegurar que el directorio existe
+            os.makedirs(os.path.dirname(metadata_path), exist_ok=True)
+            
+            # Guardar en YAML
+            with open(metadata_path, 'w', encoding='utf-8') as f:
+                yaml.dump(config_dict, f, default_flow_style=False, allow_unicode=True)
+            
+            log.info(f"Metadata guardada en: {metadata_path}")
+            
+        except Exception as e:
+            log.error(f"Error al guardar metadata: {e}")
+            raise
 
     def main(self) -> None:
         """Función con el flujo principal del entrenamiento."""
         try:
             log.info("Ejecutando flujo principal de entrenamiento...")
             self.entrenar()
+            
+            # Guardar metadata al final del entrenamiento
+            log.info("---- Guardado de metadata ----")
+            self._guardar_metadata()
+            
             log.info("--- Entrenamiento finalizado con éxito ---")
             
         except KeyboardInterrupt:
