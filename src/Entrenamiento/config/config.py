@@ -3,7 +3,11 @@ from pydantic import BaseModel, Field, ValidationError
 from typing import Dict, Any, List, Union, Tuple
 import argparse
 import yaml
+import logging
 from datetime import datetime
+
+# Configurar logger
+log: logging.Logger = logging.getLogger("AFML.config")
 
 ##########################################################################################################
 # Clases que descomponen los parámetros de configuración.
@@ -78,82 +82,189 @@ class Config(BaseModel):
     Vecnormalize: VecNormalizeConfig
     Output: OutputConfig
 
-
     @classmethod
     def load_config(cls, args: argparse.Namespace) -> "Config":
         """Carga la configuración desde un YAML y la fusiona con los argumentos CLI."""
-        try:
-            with open(args.config, "r") as file:
-                yaml_config = yaml.safe_load(file)
-        except (FileNotFoundError, yaml.YAMLError) as e:
-            raise ValueError(f"Error al cargar el archivo de configuración: {e}")
-
-        # Añadir la configuración del metadata_id ¿Cómo lo hago?
+        log.info("Cargando configuración del sistema...")
         
-        # Añadir los argumentos de argaparse al diccionario de configuración.
         try:
-            yaml_config = cls._add_cli_args(args, yaml_config)
-        except KeyError as e:
-            raise ValueError(f"Error: Falta un campo requerido en la configuración o el cli: {e}")
+            # Validar argumentos de entrada
+            if args is None:
+                raise ValueError("Los argumentos no pueden ser None")
+            if not hasattr(args, 'config') or not args.config:
+                raise ValueError("Falta la ruta del archivo de configuración")
+            
+            log.debug(f"Cargando archivo de configuración: {args.config}")
+            
+            # Cargar archivo YAML
+            yaml_config: Dict[str, Any]
+            try:
+                with open(args.config, "r", encoding='utf-8') as file:
+                    yaml_config = yaml.safe_load(file)
+                    
+                if yaml_config is None:
+                    raise ValueError("El archivo de configuración está vacío")
+                    
+                log.debug("Archivo YAML cargado exitosamente")
+                
+            except FileNotFoundError as e:
+                log.error(f"Archivo de configuración no encontrado: {args.config}")
+                raise ValueError(f"Error al cargar el archivo de configuración: {e}")
+            except yaml.YAMLError as e:
+                log.error(f"Error de formato YAML: {e}")
+                raise ValueError(f"Error al parsear el archivo YAML: {e}")
+            except Exception as e:
+                log.error(f"Error inesperado al leer archivo de configuración: {e}")
+                raise ValueError(f"Error al cargar el archivo de configuración: {e}")
 
-        # Crear las rutas Output:
-        try:
-            yaml_config = cls._add_output_paths(yaml_config, args.data_id)
-        except ValueError as e:
-            raise e  # Re-raise para mantener el mensaje específico
+            # Añadir los argumentos de argparse al diccionario de configuración
+            try:
+                log.debug("Integrando argumentos de línea de comandos...")
+                yaml_config = cls._add_cli_args(args, yaml_config)
+                log.debug("Argumentos CLI integrados exitosamente")
+            except KeyError as e:
+                log.error(f"Campo requerido faltante en configuración: {e}")
+                raise ValueError(f"Error: Falta un campo requerido en la configuración: {e}")
+            except Exception as e:
+                log.error(f"Error al procesar argumentos CLI: {e}")
+                raise ValueError(f"Error al procesar argumentos CLI: {e}")
+
+            # Crear las rutas Output
+            try:
+                log.debug("Configurando rutas de salida...")
+                yaml_config = cls._add_output_paths(yaml_config, args.data_id)
+                log.debug("Rutas de salida configuradas exitosamente")
+            except ValueError as e:
+                log.error(f"Error al configurar rutas: {e}")
+                raise
+            except Exception as e:
+                log.error(f"Error inesperado al configurar rutas de salida: {e}")
+                raise ValueError(f"Error inesperado al configurar rutas de salida: {e}")
+            
+            # Crear y validar la configuración
+            try:
+                log.debug("Validando configuración final...")
+                config_instance: "Config" = cls(**yaml_config)
+                log.info("Configuración cargada y validada exitosamente")
+                return config_instance
+                
+            except ValidationError as e:
+                log.error("Error de validación en la configuración:")
+                for error in e.errors():
+                    log.error(f"  - {error['loc']}: {error['msg']}")
+                raise ValueError(f"La configuración no es válida: {e}")
+            except Exception as e:
+                log.error(f"Error inesperado durante la validación: {e}")
+                raise ValueError(f"Error al validar configuración: {e}")
+                
         except Exception as e:
-            raise ValueError(f"Error inesperado al configurar rutas de salida: {e}")
-        
-        try:
-            return cls(**yaml_config)
-        except ValidationError as e:
-            print("Error: La configuración no es válida. Revisa los siguientes campos:")
-            print(e)
+            log.error(f"Error crítico al cargar configuración: {e}")
+            log.error("Detalles del error:", exc_info=True)
             raise
     
     @classmethod
     def _add_cli_args(cls, args: argparse.Namespace, yaml_config: Dict[str, Any]) -> Dict[str, Any]:
         """Añade los argumentos de argparse al diccionario de configuración YAML."""
+        log.debug("Procesando argumentos de línea de comandos...")
         
         try:
+            # Validar que los argumentos requeridos estén presentes
+            if not hasattr(args, 'episodios'):
+                raise KeyError("Falta el argumento 'episodios'")
+            
+            if args.episodios <= 0:
+                raise ValueError(f"El número de episodios debe ser positivo: {args.episodios}")
+            
+            # Validar estructura de configuración
+            if 'entorno' not in yaml_config:
+                raise KeyError("Falta la sección 'entorno' en la configuración")
+            
             # Sobrescribir con los argumentos de argparse
             yaml_config['entorno']['episodios'] = args.episodios
             
+            log.debug(f"Episodios configurados: {args.episodios}")
             return yaml_config
+            
         except Exception as e:
-            raise ValueError(f"Error al procesar argumentos CLI: {e}")
+            log.error(f"Error al procesar argumentos CLI: {e}")
+            raise
     
     @staticmethod
     def _train_id(yaml_config: Dict[str, Any], data_id: str) -> str:
         """Devuelve el train_id para nombrar la carpeta de salida del entrenamiento."""
+        log.debug("Generando ID de entrenamiento...")
+        
         try:
-            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            # Validar parámetros de entrada
+            if not data_id or not data_id.strip():
+                raise ValueError("El data_id no puede estar vacío")
+            
+            timestamp: str = datetime.now().strftime('%Y%m%d_%H%M%S')
             
             # Extraer parámetros clave con verificación
-            lr = yaml_config['SACmodel']['learning_rate']
-            batch_size = yaml_config['SACmodel']['batch_size']
-            window_size = yaml_config['entorno']['window_size']  
+            required_keys: List[str] = ['SACmodel', 'entorno']
+            for key in required_keys:
+                if key not in yaml_config:
+                    raise KeyError(f"Falta la sección '{key}' en la configuración")
+            
+            sac_config: Dict[str, Any] = yaml_config['SACmodel']
+            entorno_config: Dict[str, Any] = yaml_config['entorno']
+            
+            # Validar y extraer parámetros específicos
+            required_sac_keys: List[str] = ['learning_rate', 'batch_size']
+            for key in required_sac_keys:
+                if key not in sac_config:
+                    raise KeyError(f"Falta '{key}' en la configuración SACmodel")
+            
+            if 'window_size' not in entorno_config:
+                raise KeyError("Falta 'window_size' en la configuración del entorno")
+            
+            lr: float = sac_config['learning_rate']
+            batch_size: int = sac_config['batch_size']
+            window_size: int = entorno_config['window_size']
 
-            return f"train_{data_id}_lr{lr}_bs{batch_size}_ws{window_size}_{timestamp}"
+            train_id: str = f"train_{data_id}_lr{lr}_bs{batch_size}_ws{window_size}_{timestamp}"
+            
+            log.debug(f"Train ID generado: {train_id}")
+            return train_id
+            
         except KeyError as e:
+            log.error(f"Configuración incompleta: {e}")
             raise ValueError(f"Error: Falta configuración requerida para crear train_id: {e}")
         except Exception as e:
+            log.error(f"Error al generar train_id: {e}")
             raise ValueError(f"Error al generar train_id: {e}")
     
     @staticmethod
     def _add_output_paths(yaml_config: Dict[str, Any], data_id: str) -> Dict[str, Any]:
         """Añade rutas de salida compactas al diccionario de configuración YAML."""
+        log.debug("Configurando rutas de salida...")
+        
         try:
-            train_id = Config._train_id(yaml_config, data_id)
-
-            base_dir = f"entrenamientos/{train_id}"
-            yaml_config.setdefault('Output', {}).update({
-                "base_dir": f"{base_dir}",
+            # Validar parámetros de entrada
+            if not data_id or not data_id.strip():
+                raise ValueError("El data_id no puede estar vacío")
+            
+            train_id: str = Config._train_id(yaml_config, data_id)
+            base_dir: str = f"entrenamientos/{train_id}"
+            
+            # Inicializar sección Output si no existe
+            if 'Output' not in yaml_config:
+                yaml_config['Output'] = {}
+            
+            # Configurar rutas de salida
+            output_config: Dict[str, str] = {
+                "base_dir": base_dir,
                 'model_path': f"{base_dir}/modelos/modelo",
-                'vecnorm_path': f"{base_dir}/modelos/vecnorm",
+                'vecnorm_path': f"{base_dir}/modelos/vecnorm.pkl",
                 'tensorboard_log': f"{base_dir}/tensorboard/"
-            })
-
+            }
+            
+            yaml_config['Output'].update(output_config)
+            
+            log.debug(f"Directorio base configurado: {base_dir}")
             return yaml_config
+            
         except Exception as e:
+            log.error(f"Error al configurar rutas de salida: {e}")
             raise ValueError(f"Error al configurar rutas de salida: {e}")
