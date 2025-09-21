@@ -74,6 +74,8 @@ class TradingEnv(gym.Env):
             self.max_drawdown_permitido: float = config.entorno.max_drawdown_permitido
             self.factor_aversion_riesgo: float = config.entorno.factor_aversion_riesgo
             self.umbral_manterner_posicion: float = config.entorno.umbral_mantener_posicion
+            # Penalización cuando el agente no opera (evita aprendizaje por inacción)
+            self.penalizacion_no_operar: float = config.entorno.penalizacion_no_operar
             
             # Usamos prev_equity para calcular recompensa relativa basada en equity
             self.prev_equity: float = 0.0
@@ -181,7 +183,8 @@ class TradingEnv(gym.Env):
             # Obtenemos el estado en el instante t + 1 
             precio_siguiente: float = float(self.data_array[self.paso_actual, self.close_idx])
 
-            # Calculamos la recompensa:
+            # Calculamos la recompensa (si no hay posición abierta y la recompensa es 0,
+            # aplicaremos una penalización para evitar aprender a no operar)
             recompensa = self._recompensa(precio_siguiente)
 
             # Obtenemos la nueva observacion
@@ -292,6 +295,13 @@ class TradingEnv(gym.Env):
                 recompensa: float = delta_equity * self.factor_aversion_riesgo
             else:
                 recompensa = delta_equity
+            # Si no hay posición abierta y la recompensa es 0, aplicar penalización
+            try:
+                if float(recompensa) == 0.0 and self.portafolio.posicion_abierta is None:
+                    recompensa = float(recompensa) - float(self.penalizacion_no_operar)
+            except Exception:
+                # En caso de cualquier problema inspeccionando la posición, no bloquear la recompensa
+                pass
 
             # Actualizamos prev_equity para el siguiente paso
             self.prev_equity = equity_actual

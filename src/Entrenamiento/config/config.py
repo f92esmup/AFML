@@ -25,6 +25,7 @@ class EntornoConfig(BaseModel):
     max_drawdown_permitido: float = Field(..., gt=0, lt=1, description="Máximo drawdown permitido antes de terminar el episodio.")
     factor_aversion_riesgo: float = Field(..., gt=1, description="Factor de aversión al riesgo para la recompensa.")
     umbral_mantener_posicion: float = Field(..., gt=0, lt=1, description="Umbral para mantener la posición actual.")
+    penalizacion_no_operar: float = Field(..., ge=0, description="Penalización aplicada cuando el agente no realiza ninguna operación (recompensa == 0).")
     episodios: int = Field(..., gt=0, description="Número total de episodios para entrenar el agente.")
 
 class NetArchConfig(BaseModel):
