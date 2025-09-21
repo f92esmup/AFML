@@ -8,6 +8,7 @@ from typing import Tuple, Dict, Any, Optional, List
 
 from src.Entrenamiento.config import Config
 from src.Entrenamiento.entorno.portafolio import Portafolio
+from src.Entrenamiento.entorno.info_builder import build_info_dict
 
 # Configurar logger
 log: logging.Logger = logging.getLogger("AFML.entorno")
@@ -154,13 +155,20 @@ class TradingEnv(gym.Env):
                 observacion: np.ndarray = np.zeros(self.observation_space.shape, dtype=np.float32) #type: ignore
                 recompensa: float = 0.0
                 terminated: bool = False
-                
-                info: Dict[str, Any] = {
+                entorno_raw = {
                     'status': 'Fin de los datos',
                     'paso': self.paso_actual,
                     'episodio': self.episodio,
-                    **self.portafolio.get_info_portafolio(self.data_array[self.paso_actual-1, self.close_idx])
+                    'timestamp': self.timestamps[self.paso_actual-1] if self.timestamps is not None else None,
+                    'action': float(action[0])
                 }
+
+                portafolio_raw = self.portafolio.get_info_portafolio(self.data_array[self.paso_actual-1, self.close_idx])
+
+                # operacion info may be empty here
+                operacion_raw: Dict[str, Any] = {}
+
+                info = build_info_dict(entorno=entorno_raw, portafolio=portafolio_raw, operacion=operacion_raw)
 
                 return observacion, recompensa, terminated, truncated, info
             
@@ -179,8 +187,8 @@ class TradingEnv(gym.Env):
             if terminated:
                 log.warning(f"Episodio terminado por max drawdown: {self.portafolio.calcular_max_drawdown(precio_siguiente):.4f}")
 
-            # Información optimizada para análisis y Power BI
-            info = {
+            # Información optimizada y con estructura fija para análisis
+            entorno_raw = {
                 'paso': self.paso_actual,
                 'episodio': self.episodio,
                 'timestamp': self.timestamps[self.paso_actual] if self.timestamps is not None else None,
@@ -188,9 +196,13 @@ class TradingEnv(gym.Env):
                 'precio': precio_siguiente,
                 'recompensa': recompensa,
                 'terminated': terminated,
-                **operacion_info,
-                **self.portafolio.get_info_portafolio(precio_siguiente)
             }
+
+            portafolio_raw = self.portafolio.get_info_portafolio(precio_siguiente)
+
+            operacion_raw = operacion_info or {}
+
+            info = build_info_dict(entorno=entorno_raw, portafolio=portafolio_raw, operacion=operacion_raw)
 
             return observacion, recompensa, terminated, truncated, info
             

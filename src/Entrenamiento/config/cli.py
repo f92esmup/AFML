@@ -23,7 +23,14 @@ def parse_args() -> argparse.Namespace:
             required=True,
             help="ID del dataset a usar para el entrenamiento (ej: BTCUSDT_20250904_133047)"
         )
-        
+
+        parser.add_argument(
+            "--data-eval-id",
+            type=str,
+            required=True,
+            help="ID del dataset a usar para el entrenamiento (ej: BTCUSDT_20250904_133047)"
+        )
+
         parser.add_argument(
             "--episodios",
             type=int,

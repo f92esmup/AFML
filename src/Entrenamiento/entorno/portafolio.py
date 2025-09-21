@@ -9,6 +9,7 @@ import pandas as pd
 import logging
 from src.Entrenamiento.config import Config 
 from typing import Tuple, Optional, Dict, Any
+from src.Entrenamiento.entorno.types import OperationInfo, PortafolioSnapshot
 
 # Configurar logger
 log: logging.Logger = logging.getLogger("AFML.portafolio")
@@ -242,7 +243,7 @@ class Portafolio:
             log.error(f"Error al reiniciar portafolio: {e}")
             raise
     
-    def abrir_posicion(self, tipo: str, precio: float, porcentaje_inversion: float) -> Tuple[bool, Dict[str, Any]]:
+    def abrir_posicion(self, tipo: str, precio: float, porcentaje_inversion: float) -> Tuple[bool, OperationInfo]:
         """Abre una nueva posición si hay suficiente margen."""
         
         try:
@@ -258,7 +259,19 @@ class Portafolio:
                 log.warning("Ya existe una posición abierta")
                 return False, {'error': 'posicion_ya_existe'}
 
-            # 1. Calcular la cantidad a invertir
+            # 1. Comprobar si hay equity suficiente para calcular una cantidad útil
+            equity_actual: float = self.get_equity(precio)
+            posible_cantidad: float = 0.0
+            try:
+                posible_cantidad = (equity_actual * self.apalancamiento * porcentaje_inversion) / precio
+            except Exception:
+                posible_cantidad = 0.0
+
+            if posible_cantidad <= 0:
+                log.warning(f"Capital insuficiente para calcular cantidad: equity={equity_actual}, apalancamiento={self.apalancamiento}, porcentaje={porcentaje_inversion}, precio={precio}")
+                return False, {'operacion': 'abrir_posicion', 'resultado': False, 'error': f"insuficiente_capital: equity={equity_actual}, requerido>0"}
+
+            # 1.b Calcular la cantidad a invertir (valores válidos)
             cantidad: float = self._calcular_cantidad_invertir(precio, porcentaje_inversion)
 
             # 2. Calcular el margen requerido para la operación (la "fianza")
@@ -275,11 +288,7 @@ class Portafolio:
             # 5. Verificar si el balance líquido es suficiente para cubrir el costo
             if self._balance < costo_total_apertura:
                 log.warning(f"Capital insuficiente: disponible={self._balance}, requerido={costo_total_apertura}")
-                return False, {
-                    'error': 'insuficiente_capital', 
-                    'balance_disponible': self._balance, 
-                    'costo_requerido': costo_total_apertura
-                }
+                return False, {'operacion': 'abrir_posicion', 'resultado': False, 'error': f"insuficiente_capital: disponible={self._balance}, requerido={costo_total_apertura}"}
 
             # 6. Crear la posición con ID único
             trade_id: int = self._next_trade_id
@@ -295,13 +304,20 @@ class Portafolio:
             self._balance -= costo_total_apertura
 
             # 8. Información esencial de la operación
-            apertura_info: Dict[str, Any] = {
-                'tipo_operacion': 'apertura_posicion',
+            apertura_info: OperationInfo = {
+                'operacion': 'abrir_long' if tipo == 'long' else 'abrir_short',
+                'tipo_accion': tipo,
+                'resultado': True,
+                'error': None,
                 'trade_id': trade_id,
                 'tipo_posicion': tipo,
                 'precio_entrada': precio,
                 'cantidad': cantidad,
-                'porcentaje_inversion': porcentaje_inversion
+                'porcentaje_inversion': porcentaje_inversion,
+                'comision': comision,
+                'slippage': slippage,
+                'margen': margen_inmediato,
+                'velas_abiertas': 0,
             }
 
             return True, apertura_info
@@ -311,7 +327,7 @@ class Portafolio:
             log.error("Detalles del error:", exc_info=True)
             raise
     
-    def modificar_posicion(self, precio: float, porcentaje_inversion: float) -> Tuple[bool, Dict[str, Any]]:
+    def modificar_posicion(self, precio: float, porcentaje_inversion: float) -> Tuple[bool, OperationInfo]:
         """Modifica la posición abierta, ya sea aumentando o reduciendo."""
         
         try:
@@ -338,14 +354,15 @@ class Portafolio:
                 return self._reducir_posicion(precio, reduccion)
             else:
                 # No hay cambio en el porcentaje de inversión
-                return False, {'info': 'sin_cambios'}
+                info: OperationInfo = {'operacion': 'mantener', 'tipo_accion': 'mantener', 'resultado': True, 'error': None}
+                return False, info
                 
         except Exception as e:
             log.error(f"Error al modificar posición: {e}")
             log.error("Detalles del error:", exc_info=True)
             raise
 
-    def _aumentar_posicion(self, precio: float, porcentaje_inversion_adicional: float) -> Tuple[bool, Dict[str, Any]]:
+    def _aumentar_posicion(self, precio: float, porcentaje_inversion_adicional: float) -> Tuple[bool, OperationInfo]:
         """Añade capital a una posición existente, promediando el precio."""
         
         try:
@@ -368,11 +385,7 @@ class Portafolio:
             # CORRECTO: Se comprueba si el balance puede cubrir el costo real
             if self._balance < costos_totales_adicionales:
                 log.warning(f"Balance insuficiente para aumentar posición: disponible={self._balance}, requerido={costos_totales_adicionales}")
-                return False, {
-                    'error': 'insuficiente_balance', 
-                    'balance_disponible': self._balance, 
-                    'costo_requerido': costos_totales_adicionales
-                }
+                return False, {'operacion': 'aumento_posicion', 'resultado': False, 'error': f"insuficiente_balance: disponible={self._balance}, requerido={costos_totales_adicionales}"}
 
             # --- Actualización del estado del portafolio ---
             # 1. Actualizar balance
@@ -392,15 +405,22 @@ class Portafolio:
             self._posicion_abierta.porcentaje_inv += porcentaje_inversion_adicional
             
             # Información esencial del aumento
-            aumento_info: Dict[str, Any] = {
-                'tipo_operacion': 'aumento_posicion',
+            aumento_info: OperationInfo = {
+                'operacion': 'aumento_posicion',
+                'tipo_accion': 'long' if self._posicion_abierta._tipo == 'long' else 'short',
+                'resultado': True,
+                'error': None,
                 'trade_id': self._posicion_abierta.trade_id,
-                'precio_nuevo': precio,
+                'precio_entrada': self._posicion_abierta.precio,
                 'cantidad_adicional': cantidad_adicional,
                 'cantidad_total': nueva_cantidad,
-                'precio_promedio': nuevo_precio_promedio
+                'cantidad': nueva_cantidad,
+                'porcentaje_inversion': porcentaje_inversion_adicional,
+                'comision': comision_adicional,
+                'slippage': slippage_adicional,
+                'margen': margen_adicional,
             }
-            
+
             return True, aumento_info
             
         except Exception as e:
@@ -408,7 +428,7 @@ class Portafolio:
             log.error("Detalles del error:", exc_info=True)
             raise
 
-    def _reducir_posicion(self, precio: float, porcentaje_a_reducir: float) -> Tuple[bool, Dict[str, Any]]:
+    def _reducir_posicion(self, precio: float, porcentaje_a_reducir: float) -> Tuple[bool, OperationInfo]:
         """
         Reduce una parte de la posición, realizando el PnL parcial.
         El porcentaje a reducir se basa en el equity, de forma simétrica a _aumentar_posicion.
@@ -437,13 +457,19 @@ class Portafolio:
             comision_reduccion, slippage_reduccion = self._calcular_comision_slippage(precio, cantidad_a_reducir)
 
             # Información esencial de la reducción
-            reduccion_info: Dict[str, Any] = {
-                'tipo_operacion': 'reduccion_parcial',
+            reduccion_info: OperationInfo = {
+                'operacion': 'reduccion_parcial',
+                'tipo_accion': 'long' if self._posicion_abierta._tipo == 'long' else 'short',
+                'resultado': True,
+                'error': None,
                 'trade_id': self._posicion_abierta.trade_id,
                 'precio_salida': precio,
                 'cantidad_reducida': cantidad_a_reducir,
                 'cantidad_restante': self._posicion_abierta.cantidad - cantidad_a_reducir,
-                'pnl_parcial': pnl_parcial_realizado
+                'pnl_parcial': pnl_parcial_realizado,
+                'comision': comision_reduccion,
+                'slippage': slippage_reduccion,
+                'margen_liberado': margen_liberado,
             }
 
             # Actualizar métricas
@@ -467,7 +493,7 @@ class Portafolio:
             log.error("Detalles del error:", exc_info=True)
             raise
 
-    def cerrar_posicion(self, precio_cierre: float) -> Tuple[bool, float, Dict[str, Any]]:
+    def cerrar_posicion(self, precio_cierre: float) -> Tuple[bool, float, OperationInfo]:
         """Cierra la posición más antigua abierta y retorna información de la operación."""
         
         try:
@@ -490,16 +516,26 @@ class Portafolio:
             velas_abiertas: int = self._posicion_abierta.velas
 
             # 3. Información esencial del cierre
-            operacion_info: Dict[str, Any] = {
-                'tipo_operacion': 'cierre_completo',
+            operacion_info: OperationInfo = {
+                'operacion': 'cierre_completo',
+                'tipo_accion': tipo_posicion,
+                'resultado': True,
+                'error': None,
                 'trade_id': trade_id,
                 'tipo_posicion': tipo_posicion,
                 'precio_entrada': precio_entrada,
                 'precio_salida': precio_cierre,
                 'cantidad': cantidad,
                 'velas_abiertas': velas_abiertas,
-                'pnl_realizado': PnL_realizado
+                'pnl_realizado': PnL_realizado,
             }
+            # Añadir costes asociados al cierre (si hay datos en la posición abierta)
+            # Añadir costes asociados al cierre (tomados de la posición previa)
+            operacion_info.update({
+                'comision': self._posicion_abierta.comision if self._posicion_abierta is not None else None,
+                'slippage': self._posicion_abierta.slippage if self._posicion_abierta is not None else None,
+                'margen_liberado': margen_a_liberar
+            })
 
             # 4. Actualizar métricas del episodio
             self._operaciones_episodio += 1
