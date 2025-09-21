@@ -1,4 +1,4 @@
-""" Script para entrenar el sistema de Trading."""
+""" Script para entrenar y evaluar el sistema de Trading. Equivale a un paso de walk-forward."""
 import sys
 import logging
 from typing import TYPE_CHECKING

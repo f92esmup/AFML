@@ -1,1 +1,0 @@
-""" Evaluación del módelo personalizada."""
