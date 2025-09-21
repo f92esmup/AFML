@@ -75,7 +75,8 @@ class TradingEnv(gym.Env):
             self.factor_aversion_riesgo: float = config.entorno.factor_aversion_riesgo
             self.umbral_manterner_posicion: float = config.entorno.umbral_mantener_posicion
             
-            self.pnl_anterior: float = 0.0
+            # Usamos prev_equity para calcular recompensa relativa basada en equity
+            self.prev_equity: float = 0.0
             
         except Exception as e:
             log.error(f"Error crítico durante la inicialización del entorno: {e}")
@@ -116,10 +117,15 @@ class TradingEnv(gym.Env):
             self.episodio += 1
             self.portafolio.reset()
 
+            # Inicializar prev_equity con el equity actual para que la primera recompensa sea 0
+            precio_inicio: float = float(self.data_array[self.paso_actual, self.close_idx])
+            
+            self.prev_equity = float(self.portafolio.get_equity(precio_inicio))
+
             observacion: np.ndarray = self._get_observation()
-            
+
             info: Dict[str, Any] = {'status': 'Entorno reiniciado'}
-            
+
             return observacion, info
             
         except Exception as e:
@@ -278,18 +284,18 @@ class TradingEnv(gym.Env):
     def _recompensa(self, precio: float) -> float:
         """Calcula la recompensa con validación."""
         try:
-            pnl_actual: float = self.portafolio.calcular_PnL_no_realizado(precio)
-            pnl: float = pnl_actual - self.pnl_anterior
+            # Calculamos la recompensa como cambio relativo del equity:
+            equity_actual: float = float(self.portafolio.get_equity(precio))
+            delta_equity: float = equity_actual - self.prev_equity
 
-            if pnl < 0:
-                # Penalización por pérdidas
-                recompensa: float = pnl * self.factor_aversion_riesgo
+            if delta_equity < 0:
+                recompensa: float = delta_equity * self.factor_aversion_riesgo
             else:
-                # Recompensa por ganancias
-                recompensa = pnl
-            
-            self.pnl_anterior = pnl_actual
-            return recompensa
+                recompensa = delta_equity
+
+            # Actualizamos prev_equity para el siguiente paso
+            self.prev_equity = equity_actual
+            return float(recompensa)
             
         except Exception as e:
             log.error(f"Error al calcular recompensa: {e}")
@@ -317,8 +323,6 @@ class TradingEnv(gym.Env):
                     
                 elif self.portafolio.posicion_abierta.tipo == -1:
                     resultado, pnl, info_cierre = self.portafolio.cerrar_posicion(precio_cierre=precio)
-                    if resultado:
-                        self.pnl_anterior = 0.0
                     operacion_info.update({'operacion': 'cerrar_short', 'resultado': resultado, **info_cierre})
 
                 elif self.portafolio.posicion_abierta.tipo == 1:
@@ -336,8 +340,6 @@ class TradingEnv(gym.Env):
                     
                 elif self.portafolio.posicion_abierta.tipo == 1:
                     resultado, pnl, info_cierre = self.portafolio.cerrar_posicion(precio_cierre=precio)
-                    if resultado:
-                        self.pnl_anterior = 0.0
                     operacion_info.update({'operacion': 'cerrar_long', 'resultado': resultado, **info_cierre})
 
                 elif self.portafolio.posicion_abierta.tipo == -1:
