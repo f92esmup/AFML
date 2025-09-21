@@ -38,6 +38,15 @@ def parse_args() -> argparse.Namespace:
             required=False,
             help="Número total de episodios para entrenar el agente"
         )
+
+
+        parser.add_argument(
+            "--episodios-eval",
+            type=int,
+            default=2,
+            required=False,
+            help="Número total de episodios para entrenar el agente"
+        )
         
         parser.add_argument(
             "--config",

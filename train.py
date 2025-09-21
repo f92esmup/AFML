@@ -43,6 +43,10 @@ class Entrenamiento:
             self.data = self._cargar_datos(args.data_id)
             log.info(f"Datos cargados: {len(self.data)} registros.")
             
+            # Guardar args para uso posterior (evaluación)
+            self.data_eval_id = args.data_eval_id
+            self.episodios_eval = args.episodios_eval
+
             # Crear componentes del entrenamiento
             log.debug("Creando portafolio...")
             self.portafolio = Portafolio(self.config)
@@ -122,6 +126,25 @@ class Entrenamiento:
             log.info("Guardando modelo entrenado...")
             self.agente.GuardarModelo()
             log.info("Modelo guardado exitosamente.")
+            
+            # --- Evaluación automática si se proporcionó data_eval_id en CLI ---
+
+            if self.data_eval_id:
+                try:
+                    log.info(f"Iniciando evaluación con dataset: {self.data_eval_id}")
+                    eval_data = self._cargar_datos(self.data_eval_id)
+                    eval_portafolio = Portafolio(self.config)
+                    eval_env = TradingEnv(self.config, eval_data, eval_portafolio)
+
+                    max_steps_eval = len(eval_data) - self.config.entorno.window_size
+                    # Ejecutar evaluación (esto guardará los 3 CSVs en Output.base_dir/evaluacion)
+                    results = self.agente.EvaluarEnv(eval_env, n_episodes=self.episodios_eval, max_steps_per_episode=max_steps_eval, save_dir=self.config.Output.base_dir)
+                    log.info(f"Evaluación completada. CSVs guardados en: {self.config.Output.base_dir}/evaluacion")
+                except Exception as e:
+                    log.error(f"Error durante la evaluación: {e}")
+                    log.error("Detalles:", exc_info=True)
+            else:
+                log.info("No se proporcionó dataset de evaluación. Se omite la evaluación.")
             
             log.info("¡Entrenamiento completado exitosamente!")
             
