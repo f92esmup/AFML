@@ -3,3 +3,4 @@
 datasets/
 .codacy/
 entrenamientos/
+.pytest_cache/
