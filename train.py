@@ -39,8 +39,9 @@ class Entrenamiento:
             log.debug("Configuración cargada exitosamente.")
             
             # Cargar datos del dataset
-            log.info(f"Cargando datos del dataset: {args.data_id}")
-            self.data = self._cargar_datos(args.data_id)
+            self.data_id = args.data_id
+            log.info(f"Cargando datos del dataset: {self.data_id}")
+            self.data = self._cargar_datos(self.data_id)
             log.info(f"Datos cargados: {len(self.data)} registros.")
             
             # Guardar args para uso posterior (evaluación)
@@ -154,25 +155,47 @@ class Entrenamiento:
             raise
 
     def _guardar_metadata(self) -> None:
-        """Guarda la configuración completa en un archivo YAML como metadata."""
+        """Guarda la configuración completa en un archivo YAML como metadata, incluyendo parámetros de normalización de observaciones y data_id/data_eval_id."""
         try:
             log.info("Guardando metadata de configuración...")
-            
+
             # Convertir config a diccionario usando Pydantic
             config_dict = self.config.model_dump()
-            
+
+            # Guardar los IDs en la subclave Datasets
+            config_dict['Datasets'] = {
+                'train': self.data_id,
+                'eval': self.data_eval_id
+            }
+
+            # Guardar parámetros de normalización de observaciones bajo la clave obs_norm
+            vec_env = getattr(self.agente, 'vec_env', None)
+            if vec_env is not None and hasattr(vec_env, 'obs_rms') and vec_env.obs_rms is not None:
+                obs_rms = vec_env.obs_rms
+                obs_norm = {
+                    'mean': obs_rms.mean.tolist() if hasattr(obs_rms.mean, 'tolist') else obs_rms.mean,
+                    'var': obs_rms.var.tolist() if hasattr(obs_rms.var, 'tolist') else obs_rms.var,
+                    'count': int(obs_rms.count)
+                }
+                clip_obs = getattr(vec_env, 'clip_obs', None)
+                if clip_obs is not None:
+                    obs_norm['clip_obs'] = float(clip_obs)
+                config_dict['obs_norm'] = obs_norm
+            else:
+                config_dict['obs_norm'] = None
+
             # Crear ruta del archivo metadata
             metadata_path = os.path.join(self.config.Output.base_dir, "config_metadata.yaml")
-            
+
             # Asegurar que el directorio existe
             os.makedirs(os.path.dirname(metadata_path), exist_ok=True)
-            
+
             # Guardar en YAML
             with open(metadata_path, 'w', encoding='utf-8') as f:
                 yaml.dump(config_dict, f, default_flow_style=False, allow_unicode=True)
-            
+
             log.info(f"Metadata guardada en: {metadata_path}")
-            
+
         except Exception as e:
             log.error(f"Error al guardar metadata: {e}")
             raise
