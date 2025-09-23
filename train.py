@@ -64,7 +64,7 @@ class Entrenamiento:
             log.info(f"Timesteps totales calculados: {total_timesteps}")
             
             log.debug("Creando agente SAC...")
-            self.agente = AgenteSac(self.config, total_timesteps)
+            self.agente = AgenteSac(self.config, 1000)
             log.info("Entrenamiento inicializado correctamente.")
             
         except Exception as e:
@@ -169,18 +169,33 @@ class Entrenamiento:
             }
 
             # Guardar parámetros de normalización de observaciones bajo la clave obs_norm
+            # Solo manejamos el caso en que vec_env.obs_rms es un dict (cuando observation_space es spaces.Dict)
             vec_env = getattr(self.agente, 'vec_env', None)
             if vec_env is not None and hasattr(vec_env, 'obs_rms') and vec_env.obs_rms is not None:
                 obs_rms = vec_env.obs_rms
-                obs_norm = {
-                    'mean': obs_rms.mean.tolist() if hasattr(obs_rms.mean, 'tolist') else obs_rms.mean,
-                    'var': obs_rms.var.tolist() if hasattr(obs_rms.var, 'tolist') else obs_rms.var,
-                    'count': int(obs_rms.count)
-                }
-                clip_obs = getattr(vec_env, 'clip_obs', None)
-                if clip_obs is not None:
-                    obs_norm['clip_obs'] = float(clip_obs)
-                config_dict['obs_norm'] = obs_norm
+                if isinstance(obs_rms, dict):
+                    obs_norm = {}
+                    for k, rms in obs_rms.items():
+                        try:
+                            mean = getattr(rms, 'mean', None)
+                            var = getattr(rms, 'var', None)
+                            count = getattr(rms, 'count', None)
+                            obs_norm[k] = {
+                                'mean': mean.tolist() if hasattr(mean, 'tolist') else mean,
+                                'var': var.tolist() if hasattr(var, 'tolist') else var,
+                                'count': int(count) if count is not None else None
+                            }
+                        except Exception as e:
+                            log.error(f"Error extrayendo stats para key '{k}': {e}")
+                            obs_norm[k] = None
+                    clip_obs = getattr(vec_env, 'clip_obs', None)
+                    if clip_obs is not None:
+                        obs_norm['_clip_obs'] = float(clip_obs)
+                    config_dict['obs_norm'] = obs_norm
+                else:
+                    # No es dict -> omitimos guardar obs_norm (caso no requerido por el usuario)
+                    log.warning('vec_env.obs_rms no es dict — omitiendo guardado de obs_norm')
+                    config_dict['obs_norm'] = None
             else:
                 config_dict['obs_norm'] = None
 
