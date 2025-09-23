@@ -1,0 +1,1 @@
+""" Objeto para evaluar el riesgo actual del portafolio."""

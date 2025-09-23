@@ -1,0 +1,1 @@
+""" Objeto para la recopilación de datos de producción."""
