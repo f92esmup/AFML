@@ -64,7 +64,7 @@ class Entrenamiento:
             log.info(f"Timesteps totales calculados: {total_timesteps}")
             
             log.debug("Creando agente SAC...")
-            self.agente = AgenteSac(self.config, 1000)
+            self.agente = AgenteSac(self.config, total_timesteps)
             log.info("Entrenamiento inicializado correctamente.")
             
         except Exception as e:
