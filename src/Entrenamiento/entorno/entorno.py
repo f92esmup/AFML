@@ -90,13 +90,18 @@ class TradingEnv(gym.Env):
         
         try:
             # EL espacio de observación será una matriz con los datos de las últimas N velas
-            # y el estado ACTUAL del portafolio (PnL no realizado, posición abierta) 
-            self.observation_space = spaces.Box(
-                low=-np.inf,
-                high=np.inf,
-                shape=(self.window_size, self.n_columnas + 2), # +2 para PnL y posición
-                dtype=np.float32
-            )
+            # y el estado ACTUAL del portafolio (equity, PnL no realizado, posición abierta).
+            # Ahora añadimos 3 columnas adicionales: [equity, pnl_no_realizado, posicion]
+            # pero la información del portafolio solo se colocará en la ÚLTIMA fila de la ventana
+            # (filas anteriores contendrán ceros en esas columnas) para evitar repetirla N veces.
+            # Usamos un Dict space con dos entradas:
+            # - 'market': la ventana de mercado (window_size x n_columnas)
+            # - 'portfolio': vector con [equity, pnl_no_realizado, posicion] (forma (3,))
+            # Esto evita el "truco" de repetir la info del portafolio N veces y es más claro
+            self.observation_space = spaces.Dict({
+                'market': spaces.Box(low=-np.inf, high=np.inf, shape=(self.window_size, self.n_columnas), dtype=np.float32),
+                'portfolio': spaces.Box(low=-np.inf, high=np.inf, shape=(3,), dtype=np.float32),
+            })
 
             # EL espacio de acción será un valor continuo entre -1 y 1
             self.action_space = spaces.Box(
@@ -110,7 +115,7 @@ class TradingEnv(gym.Env):
             log.error(f"Error al construir espacios: {e}")
             raise
 
-    def reset(self, *, seed: Optional[int] = None, options: Optional[Dict[str, Any]] = None) -> Tuple[np.ndarray, Dict[str, Any]]:
+    def reset(self, *, seed: Optional[int] = None, options: Optional[Dict[str, Any]] = None) -> Tuple[Any, Dict[str, Any]]:
         """Reinicia el entorno para un nuevo episodio de entrenamiento."""
         
         try:
@@ -124,7 +129,7 @@ class TradingEnv(gym.Env):
             
             self.prev_equity = float(self.portafolio.get_equity(precio_inicio))
 
-            observacion: np.ndarray = self._get_observation()
+            observacion: Any = self._get_observation()
 
             info: Dict[str, Any] = {'status': 'Entorno reiniciado'}
 
@@ -135,7 +140,7 @@ class TradingEnv(gym.Env):
             log.error("Detalles del error:", exc_info=True)
             raise
 
-    def step(self, action: np.ndarray) -> Tuple[np.ndarray, float, bool, bool, Dict[str, Any]]:
+    def step(self, action: np.ndarray) -> Tuple[Any, float, bool, bool, Dict[str, Any]]:
         """Ejecución de un paso en el entorno con manejo completo de errores."""
         
         try:
@@ -160,7 +165,16 @@ class TradingEnv(gym.Env):
             truncated: bool = self.paso_actual >= self.n_filas - 1
 
             if truncated:
-                observacion: np.ndarray = np.zeros(self.observation_space.shape, dtype=np.float32) #type: ignore
+                # Para el caso truncado retornamos una observación vacía/ceros compatible con el Dict
+                market_obs = np.zeros((self.window_size, self.n_columnas), dtype=np.float32)
+                # Usar el precio anterior válido para calcular la info del portafolio
+                precio_prev = float(self.data_array[self.paso_actual-1, self.close_idx]) if (self.paso_actual-1) >= 0 else float(self.data_array[0, self.close_idx])
+                pnl_no_realizado = self.portafolio.calcular_PnL_no_realizado(precio_prev) if self.portafolio.posicion_abierta is not None else 0.0
+                equity = float(self.portafolio.get_equity(precio_prev))
+                posicion_abierta = float(self.portafolio.posicion_abierta.tipo) if self.portafolio.posicion_abierta is not None else 0.0
+                portfolio_obs = np.array([equity, pnl_no_realizado, posicion_abierta], dtype=np.float32)
+
+                observacion = {'market': market_obs, 'portfolio': portfolio_obs}
                 recompensa: float = 0.0
                 terminated: bool = False
                 entorno_raw = {
@@ -171,7 +185,7 @@ class TradingEnv(gym.Env):
                     'action': float(action[0])
                 }
 
-                portafolio_raw = self.portafolio.get_info_portafolio(self.data_array[self.paso_actual-1, self.close_idx])
+                portafolio_raw = self.portafolio.get_info_portafolio(precio_prev)
 
                 # operacion info may be empty here
                 operacion_raw: Dict[str, Any] = {}
@@ -220,7 +234,7 @@ class TradingEnv(gym.Env):
             log.error("Detalles del error:", exc_info=True)
             raise
 
-    def _get_observation(self) -> np.ndarray:
+    def _get_observation(self) -> Dict[str, np.ndarray]:
         """Construye la observación actual con manejo de errores."""
         
         try:
@@ -233,24 +247,23 @@ class TradingEnv(gym.Env):
             
             ventana_datos: np.ndarray = self.data_array[start:end]
 
-            # 2. Calcular el PnL no realizado
+            # 2. Calcular la información actual del portafolio (solo una vez)
             precio_actual: float = float(self.data_array[self.paso_actual, self.close_idx])
             pnl_no_realizado: float = self.portafolio.calcular_PnL_no_realizado(precio_actual)
+
+            # equity actual útil para que el agente tenga una señal del tamaño de la cuenta
+            equity_actual: float = float(self.portafolio.get_equity(precio_actual))
 
             # 3. Obtener la posición abierta
             posicion_abierta: float = 0.0
             if self.portafolio.posicion_abierta is not None:
                 posicion_abierta = float(self.portafolio.posicion_abierta.tipo)
 
-            # 4. Crear la información del portafolio de manera eficiente
-            portafolio_info: np.ndarray = np.full((self.window_size, 2), 
-                                    [pnl_no_realizado, posicion_abierta], 
-                                    dtype=np.float32)
+            # 4. Devolver un dict con dos entradas para mayor claridad y compatibilidad con SB3
+            market_obs: np.ndarray = ventana_datos.astype(np.float32)
+            portfolio_obs: np.ndarray = np.array([equity_actual, pnl_no_realizado, posicion_abierta], dtype=np.float32)
 
-            # 5. Combinar los datos del mercado con los del portafolio
-            observacion: np.ndarray = np.hstack((ventana_datos, portafolio_info))
-            
-            return observacion
+            return {'market': market_obs, 'portfolio': portfolio_obs}
             
         except Exception as e:
             log.error(f"Error al construir observación: {e}")
