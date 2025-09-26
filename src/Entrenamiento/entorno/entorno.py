@@ -73,7 +73,7 @@ class TradingEnv(gym.Env):
             
             self.max_drawdown_permitido: float = config.entorno.max_drawdown_permitido
             self.factor_aversion_riesgo: float = config.entorno.factor_aversion_riesgo
-            self.umbral_manterner_posicion: float = config.entorno.umbral_mantener_posicion
+            self.umbral_mantener_posicion: float = config.entorno.umbral_mantener_posicion
             # Penalización cuando el agente no opera (evita aprendizaje por inacción)
             self.penalizacion_no_operar: float = config.entorno.penalizacion_no_operar
             
@@ -336,7 +336,7 @@ class TradingEnv(gym.Env):
             
             operacion_info: Dict[str, Any] = {'tipo_accion': 'mantener', 'resultado': True}
             
-            if action > self.umbral_manterner_posicion:
+            if action > self.umbral_mantener_posicion:
                 tipo_posicion: str = 'long'
                 operacion_info['tipo_accion'] = 'long'
 
@@ -352,7 +352,7 @@ class TradingEnv(gym.Env):
                     resultado, info_mod = self.portafolio.modificar_posicion(precio=precio, porcentaje_inversion=action)
                     operacion_info.update({'operacion': 'modificar_long', 'resultado': resultado, **info_mod})
                     
-            elif action < -self.umbral_manterner_posicion:
+            elif action < -self.umbral_mantener_posicion:
                 tipo_posicion = 'short'
                 porcentaje_inversion = abs(action)
                 operacion_info['tipo_accion'] = 'short'

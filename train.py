@@ -1,4 +1,5 @@
-""" Script para entrenar y evaluar el sistema de Trading. Equivale a un paso de walk-forward."""
+"""Script para entrenar y evaluar el sistema de Trading. Equivale a un paso de walk-forward."""
+
 import sys
 import logging
 from typing import TYPE_CHECKING
@@ -20,30 +21,32 @@ if TYPE_CHECKING:
 setup_logger()
 log: logging.Logger = logging.getLogger("AFML.train")
 
+
 class Entrenamiento:
     def __init__(self, args: Namespace) -> None:
         """Inicializa el entrenamiento con la configuración proporcionada."""
         log.info("Inicializando entrenamiento...")
-        
-        self.config: 'Config'
+
+        self.config: "Config"
         self.data: pd.DataFrame
         self.portafolio: Portafolio
         self.entorno: TradingEnv
         self.agente: AgenteSac
-        
+
         try:
             # Cargar configuración
             log.debug("Cargando configuración...")
             from src.Entrenamiento.config import Config
+
             self.config = Config.load_config(args)
             log.debug("Configuración cargada exitosamente.")
-            
+
             # Cargar datos del dataset
             self.data_id = args.data_id
             log.info(f"Cargando datos del dataset: {self.data_id}")
             self.data = self._cargar_datos(self.data_id)
             log.info(f"Datos cargados: {len(self.data)} registros.")
-            
+
             # Guardar args para uso posterior (evaluación)
             self.data_eval_id = args.data_eval_id
             self.episodios_eval = args.episodios_eval
@@ -52,21 +55,25 @@ class Entrenamiento:
             log.debug("Creando portafolio...")
             self.portafolio = Portafolio(self.config)
             log.debug("Portafolio creado exitosamente.")
-            
+
             log.debug("Creando entorno de trading...")
             self.entorno = TradingEnv(self.config, self.data, self.portafolio)
             log.debug("Entorno de trading creado exitosamente.")
-            
+
             # Calcular timesteps totales
             log.debug("Calculando timesteps totales...")
-            max_steps_per_episode: int = len(self.data) - self.config.entorno.window_size
-            total_timesteps: int = calcular_steps(self.config.entorno.episodios, max_steps_per_episode)
+            max_steps_per_episode: int = (
+                len(self.data) - self.config.entorno.window_size
+            )
+            total_timesteps: int = calcular_steps(
+                self.config.entorno.episodios, max_steps_per_episode
+            )
             log.info(f"Timesteps totales calculados: {total_timesteps}")
-            
+
             log.debug("Creando agente SAC...")
             self.agente = AgenteSac(self.config, total_timesteps)
             log.info("Entrenamiento inicializado correctamente.")
-            
+
         except Exception as e:
             log.error(f"Error durante la inicialización del entrenamiento: {e}")
             log.error("Detalles del error:", exc_info=True)
@@ -79,19 +86,19 @@ class Entrenamiento:
             # Cargar datos
             data_path: str = f"datasets/{data_id}/data.csv"
             log.debug(f"Ruta del archivo: {data_path}")
-            
+
             data: pd.DataFrame = pd.read_csv(data_path, index_col=0, parse_dates=True)
-            
+
             # Validar datos cargados
             if data.empty:
                 raise ValueError(f"El dataset {data_id} está vacío")
-            
+
             log.info(f"Datos cargados exitosamente desde: {data_path}")
             log.debug(f"Shape de los datos: {data.shape}")
             log.debug(f"Columnas disponibles: {list(data.columns)}")
-            
+
             return data
-            
+
         except FileNotFoundError as e:
             log.error(f"No se encontró el archivo del dataset {data_id}: {e}")
             log.error(f"Verifique que existe el archivo: datasets/{data_id}/data.csv")
@@ -110,24 +117,24 @@ class Entrenamiento:
     def entrenar(self) -> None:
         """Ejecuta el proceso de entrenamiento."""
         log.info("Iniciando entrenamiento del agente...")
-        
+
         try:
             # Crear el modelo del agente
             log.info("Creando modelo SAC...")
             self.agente.CrearModelo(self.entorno)
             log.info("Modelo SAC creado exitosamente.")
-            
+
             # Entrenar el agente
             log.info("Comenzando entrenamiento...")
             log.info(f"Episodios configurados: {self.config.entorno.episodios}")
             self.agente.train()
             log.info("Entrenamiento del agente completado.")
-            
+
             # Guardar el modelo entrenado
             log.info("Guardando modelo entrenado...")
             self.agente.GuardarModelo()
             log.info("Modelo guardado exitosamente.")
-            
+
             # --- Evaluación automática si se proporcionó data_eval_id en CLI ---
 
             if self.data_eval_id:
@@ -139,16 +146,25 @@ class Entrenamiento:
 
                     max_steps_eval = len(eval_data) - self.config.entorno.window_size
                     # Ejecutar evaluación (esto guardará los 3 CSVs en Output.base_dir/evaluacion)
-                    results = self.agente.EvaluarEnv(eval_env, n_episodes=self.episodios_eval, max_steps_per_episode=max_steps_eval, save_dir=self.config.Output.base_dir)
-                    log.info(f"Evaluación completada. CSVs guardados en: {self.config.Output.base_dir}/evaluacion")
+                    results = self.agente.EvaluarEnv(
+                        eval_env,
+                        n_episodes=self.episodios_eval,
+                        max_steps_per_episode=max_steps_eval,
+                        save_dir=self.config.Output.base_dir,
+                    )
+                    log.info(
+                        f"Evaluación completada. CSVs guardados en: {self.config.Output.base_dir}/evaluacion"
+                    )
                 except Exception as e:
                     log.error(f"Error durante la evaluación: {e}")
                     log.error("Detalles:", exc_info=True)
             else:
-                log.info("No se proporcionó dataset de evaluación. Se omite la evaluación.")
-            
+                log.info(
+                    "No se proporcionó dataset de evaluación. Se omite la evaluación."
+                )
+
             log.info("¡Entrenamiento completado exitosamente!")
-            
+
         except Exception as e:
             log.error(f"Error durante el entrenamiento: {e}")
             log.error("Detalles del error:", exc_info=True)
@@ -163,50 +179,57 @@ class Entrenamiento:
             config_dict = self.config.model_dump()
 
             # Guardar los IDs en la subclave Datasets
-            config_dict['Datasets'] = {
-                'train': self.data_id,
-                'eval': self.data_eval_id
-            }
+            config_dict["Datasets"] = {"train": self.data_id, "eval": self.data_eval_id}
 
             # Guardar parámetros de normalización de observaciones bajo la clave obs_norm
             # Solo manejamos el caso en que vec_env.obs_rms es un dict (cuando observation_space es spaces.Dict)
-            vec_env = getattr(self.agente, 'vec_env', None)
-            if vec_env is not None and hasattr(vec_env, 'obs_rms') and vec_env.obs_rms is not None:
+            vec_env = getattr(self.agente, "vec_env", None)
+            if (
+                vec_env is not None
+                and hasattr(vec_env, "obs_rms")
+                and vec_env.obs_rms is not None
+            ):
                 obs_rms = vec_env.obs_rms
                 if isinstance(obs_rms, dict):
                     obs_norm = {}
                     for k, rms in obs_rms.items():
                         try:
-                            mean = getattr(rms, 'mean', None)
-                            var = getattr(rms, 'var', None)
-                            count = getattr(rms, 'count', None)
+                            mean = getattr(rms, "mean", None)
+                            var = getattr(rms, "var", None)
+                            count = getattr(rms, "count", None)
                             obs_norm[k] = {
-                                'mean': mean.tolist() if hasattr(mean, 'tolist') else mean,
-                                'var': var.tolist() if hasattr(var, 'tolist') else var,
-                                'count': int(count) if count is not None else None
+                                "mean": mean.tolist()
+                                if hasattr(mean, "tolist")
+                                else mean,
+                                "var": var.tolist() if hasattr(var, "tolist") else var,
+                                "count": int(count) if count is not None else None,
                             }
                         except Exception as e:
                             log.error(f"Error extrayendo stats para key '{k}': {e}")
                             obs_norm[k] = None
-                    clip_obs = getattr(vec_env, 'clip_obs', None)
+                    clip_obs = getattr(vec_env, "clip_obs", None)
                     if clip_obs is not None:
-                        obs_norm['_clip_obs'] = float(clip_obs)
-                    config_dict['obs_norm'] = obs_norm
+                        obs_norm["_clip_obs"] = float(clip_obs)
+                    config_dict["obs_norm"] = obs_norm
                 else:
                     # No es dict -> omitimos guardar obs_norm (caso no requerido por el usuario)
-                    log.warning('vec_env.obs_rms no es dict — omitiendo guardado de obs_norm')
-                    config_dict['obs_norm'] = None
+                    log.warning(
+                        "vec_env.obs_rms no es dict — omitiendo guardado de obs_norm"
+                    )
+                    config_dict["obs_norm"] = None
             else:
-                config_dict['obs_norm'] = None
+                config_dict["obs_norm"] = None
 
             # Crear ruta del archivo metadata
-            metadata_path = os.path.join(self.config.Output.base_dir, "config_metadata.yaml")
+            metadata_path = os.path.join(
+                self.config.Output.base_dir, "config_metadata.yaml"
+            )
 
             # Asegurar que el directorio existe
             os.makedirs(os.path.dirname(metadata_path), exist_ok=True)
 
             # Guardar en YAML
-            with open(metadata_path, 'w', encoding='utf-8') as f:
+            with open(metadata_path, "w", encoding="utf-8") as f:
                 yaml.dump(config_dict, f, default_flow_style=False, allow_unicode=True)
 
             log.info(f"Metadata guardada en: {metadata_path}")
@@ -220,13 +243,13 @@ class Entrenamiento:
         try:
             log.info("Ejecutando flujo principal de entrenamiento...")
             self.entrenar()
-            
+
             # Guardar metadata al final del entrenamiento
             log.info("---- Guardado de metadata ----")
             self._guardar_metadata()
-            
+
             log.info("--- Entrenamiento finalizado con éxito ---")
-            
+
         except KeyboardInterrupt:
             log.warning("Entrenamiento interrumpido por el usuario (Ctrl+C)")
             log.info("Limpiando recursos...")
@@ -241,29 +264,30 @@ class Entrenamiento:
             log.error(f"Error: {e}", exc_info=True)
             sys.exit(1)
 
+
 def main() -> None:
     """Punto de entrada principal del script."""
     log.info("--- Iniciando script de entrenamiento ---")
-    
+
     try:
         # Parsear argumentos de línea de comandos
         log.debug("Parseando argumentos de línea de comandos...")
         args: Namespace = parse_args()
         log.debug(f"Argumentos recibidos: {args}")
-        
+
         # Validar argumentos básicos
-        if not hasattr(args, 'data_id') or not args.data_id:
+        if not hasattr(args, "data_id") or not args.data_id:
             raise ValueError("El argumento 'data_id' es requerido")
-        
+
         log.info(f"Iniciando entrenamiento con dataset: {args.data_id}")
-        
+
         # Crear y ejecutar entrenamiento
         log.debug("Creando instancia de entrenamiento...")
         entrenamiento: Entrenamiento = Entrenamiento(args)
         entrenamiento.main()
-        
+
         log.info("--- Script de entrenamiento finalizado exitosamente ---")
-        
+
     except KeyboardInterrupt:
         log.warning("Script interrumpido por el usuario (Ctrl+C)")
         sys.exit(130)
@@ -275,6 +299,6 @@ def main() -> None:
         log.error(f"Error: {e}", exc_info=True)
         sys.exit(1)
 
+
 if __name__ == "__main__":
     main()
-
