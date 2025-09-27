@@ -1,7 +1,8 @@
 """Configuración del entorno de entrenamiento"""
 
 from pydantic import BaseModel, Field, ValidationError
-from typing import Dict, Any, List, Union, Tuple
+from typing import Dict, Any, List, Union, Tuple, Optional
+import os
 import argparse
 import yaml
 import logging
@@ -133,6 +134,17 @@ class OutputConfig(BaseModel):
     tensorboard_log: str = Field(..., description="Ruta para los logs de TensorBoard.")
 
 
+class DatasetConfig(BaseModel):
+    """Información extraída del dataset (dataset metadata)."""
+
+    train: str
+    eval: Optional[str] = None
+    symbol: Optional[str] = None
+    intervalo: Optional[Union[str, int]] = None
+    symbol_eval: Optional[str] = None
+    intervalo_eval: Optional[Union[str, int]] = None
+
+
 ##########################################################################################################
 # Clase de Configuración Principal
 ##########################################################################################################
@@ -145,6 +157,7 @@ class Config(BaseModel):
     policy_kwargs: PolicyKwargsConfig
     Vecnormalize: VecNormalizeConfig
     Output: OutputConfig
+    Datasets: Optional[DatasetConfig] = None
 
     @classmethod
     def load_config(cls, args: argparse.Namespace) -> "Config":
@@ -199,6 +212,14 @@ class Config(BaseModel):
             try:
                 log.debug("Configurando rutas de salida...")
                 yaml_config = cls._add_output_paths(yaml_config, args.data_id)
+                # Intentar añadir metadata del dataset (symbol/intervalo)
+                try:
+                    yaml_config = cls._add_dataset_info(
+                        yaml_config, args.data_id, getattr(args, "data_eval_id", None)
+                    )
+                    log.debug("Metadata del dataset integrada en la configuración")
+                except Exception as e:
+                    log.warning(f"No se pudo integrar metadata del dataset: {e}")
                 log.debug("Rutas de salida configuradas exitosamente")
             except ValueError as e:
                 log.error(f"Error al configurar rutas: {e}")
@@ -342,4 +363,51 @@ class Config(BaseModel):
         except Exception as e:
             log.error(f"Error al configurar rutas de salida: {e}")
             raise ValueError(f"Error al configurar rutas de salida: {e}")
+
+    @staticmethod
+    def _add_dataset_info(
+        yaml_config: Dict[str, Any], data_id: str, data_eval_id: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Lee datasets/{data_id}/metadata.yaml para extraer symbol e interval y los añade al yaml_config.
+
+        También intenta leer el metadata del dataset de evaluación si se proporciona.
+        """
+        log.debug("Integrando información del dataset en la configuración...")
+
+        if not data_id or not data_id.strip():
+            raise ValueError("El data_id no puede estar vacío")
+
+        # valores por defecto
+        datasets_section: Dict[str, Any] = {"train": data_id, "eval": data_eval_id, "symbol": None, "intervalo": None}
+
+        # Helper para leer metadata
+        def _read_meta(path: str) -> Dict[str, Any]:
+            try:
+                if not os.path.exists(path):
+                    log.debug(f"Metadata no encontrada: {path}")
+                    return {}
+                with open(path, "r", encoding="utf-8") as f:
+                    return yaml.safe_load(f) or {}
+            except Exception as e:
+                log.error(f"Error leyendo metadata {path}: {e}")
+                return {}
+
+        # Leer metadata del dataset train
+        train_meta = _read_meta(f"datasets/{data_id}/metadata.yaml")
+        dd = train_meta.get("data_downloader", {})
+        if dd:
+            datasets_section["symbol"] = dd.get("symbol") or dd.get("symbol".lower())
+            datasets_section["intervalo"] = dd.get("interval") or dd.get("intervalo") or dd.get("interval".lower())
+
+        # Leer metadata del dataset eval si aplica
+        if data_eval_id:
+            eval_meta = _read_meta(f"datasets/{data_eval_id}/metadata.yaml")
+            edd = eval_meta.get("data_downloader", {})
+            if edd:
+                datasets_section["symbol_eval"] = edd.get("symbol") or edd.get("symbol".lower())
+                datasets_section["intervalo_eval"] = edd.get("interval") or edd.get("intervalo") or edd.get("interval".lower())
+
+        # Añadir al yaml_config
+        yaml_config["Datasets"] = datasets_section
+        return yaml_config
 

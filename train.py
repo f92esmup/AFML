@@ -178,9 +178,6 @@ class Entrenamiento:
             # Convertir config a diccionario usando Pydantic
             config_dict = self.config.model_dump()
 
-            # Guardar los IDs en la subclave Datasets
-            config_dict["Datasets"] = {"train": self.data_id, "eval": self.data_eval_id}
-
             # Guardar parámetros de normalización de observaciones bajo la clave obs_norm
             # Solo manejamos el caso en que vec_env.obs_rms es un dict (cuando observation_space es spaces.Dict)
             vec_env = getattr(self.agente, "vec_env", None)
@@ -197,11 +194,25 @@ class Entrenamiento:
                             mean = getattr(rms, "mean", None)
                             var = getattr(rms, "var", None)
                             count = getattr(rms, "count", None)
+                            # Normalizar mean/var si existen y tienen tolist(),
+                            # manejar None correctamente.
+                            if mean is None:
+                                mean_val = None
+                            elif hasattr(mean, "tolist"):
+                                mean_val = mean.tolist()
+                            else:
+                                mean_val = mean
+
+                            if var is None:
+                                var_val = None
+                            elif hasattr(var, "tolist"):
+                                var_val = var.tolist()
+                            else:
+                                var_val = var
+
                             obs_norm[k] = {
-                                "mean": mean.tolist()
-                                if hasattr(mean, "tolist")
-                                else mean,
-                                "var": var.tolist() if hasattr(var, "tolist") else var,
+                                "mean": mean_val,
+                                "var": var_val,
                                 "count": int(count) if count is not None else None,
                             }
                         except Exception as e:

@@ -5,3 +5,4 @@ datasets/
 entrenamientos/
 .pytest_cache/
 .vscode/
+.env/

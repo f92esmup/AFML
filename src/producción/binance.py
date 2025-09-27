@@ -1,1 +1,0 @@
-""" Obtiene todos los valores de la API de Binance como "propiedades" ( no se si es lo óptimo) de un objeto."""
