@@ -2,7 +2,6 @@
 
 import argparse
 import logging
-from typing import TYPE_CHECKING
 
 # Configurar logger
 log: logging.Logger = logging.getLogger("AFML.cli")
