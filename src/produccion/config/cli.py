@@ -25,6 +25,12 @@ def parse_args() -> argparse.Namespace:
             required=True,
             help="ID del agente entrenado a usar para la producción (ej: SAC_BTCUSDT_20250904_133047)",
         )
+
+        parser.add_argument(
+            "--live",
+            action="store_true",
+            help="Modo LIVE (si no se especifica, se asume TESTNET)",
+        )
     except ValueError as ve:
         log.error(
             f"Error de valor al parsear los argumentos de la línea de comandos: {ve}"
