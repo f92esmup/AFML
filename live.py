@@ -18,6 +18,10 @@ def main() -> None:
 
     print(args.train_id)
 
+    config: ProductionConfig = ProductionConfig.load_config(args)
 
-if "__name__" == "__main__":
+    print(config.intervalo)
+
+
+if __name__ == "__main__":
     main()

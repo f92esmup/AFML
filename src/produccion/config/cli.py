@@ -20,7 +20,7 @@ def parse_args() -> argparse.Namespace:
 
         # Argumentos obligatorios
         parser.add_argument(
-            "train-id",
+            "--train-id",
             type=str,
             required=True,
             help="ID del agente entrenado a usar para la producción (ej: SAC_BTCUSDT_20250904_133047)",
