@@ -1,16 +1,23 @@
-"""Script para entrenar y evaluar el sistema de Trading. Equivale a un paso de walk-forward."""
+"""Script para entrenar y evaluar el sistema de Trading con flujo unificado.
+Implementa un paso completo de walk-forward: descarga de datos → entrenamiento → evaluación.
+"""
 
 import sys
 import logging
-from typing import TYPE_CHECKING, Optional
+import gc
+from typing import TYPE_CHECKING, Optional, Tuple
 from argparse import Namespace
 import pandas as pd
 import yaml
 import os
 import joblib
+from datetime import datetime
 from sklearn.preprocessing import StandardScaler
+from binance.client import Client
 
 from src.train.AdquisicionDatos.utils.logger import setup_logger
+from src.train.AdquisicionDatos.adquisicion import DataDownloader
+from src.train.AdquisicionDatos.preprocesamiento import Preprocesamiento
 from src.train.config import parse_args_training
 from src.train.Entrenamiento.entorno import TradingEnv, Portafolio
 from src.train.Entrenamiento.agente import AgenteSac
@@ -26,277 +33,350 @@ log: logging.Logger = logging.getLogger("AFML.train")
 
 class Entrenamiento:
     def __init__(self, args: Namespace) -> None:
-        """Inicializa el entrenamiento con la configuración proporcionada."""
-        log.info("Inicializando entrenamiento...")
+        """Inicializa el entrenamiento con flujo unificado (descarga + entrenamiento + evaluación)."""
+        log.info("Inicializando flujo unificado de entrenamiento...")
 
         self.config: "UnifiedConfig"
-        self.data: pd.DataFrame
         self.portafolio: Portafolio
-        self.entorno: TradingEnv
-        self.agente: AgenteSac
-        self.scaler: Optional[StandardScaler]
+        self.agente: Optional[AgenteSac]
+        self.client: Client
 
         try:
-            # Cargar configuración
-            log.debug("Cargando configuración...")
+            # Cargar configuración unificada
+            log.debug("Cargando configuración unificada...")
             from src.train.config import UnifiedConfig
 
-            self.config = UnifiedConfig.load_for_training(args)
-            log.debug("Configuración cargada exitosamente.")
+            self.config = UnifiedConfig.load_for_unified_training(args)
+            log.debug("Configuración unificada cargada exitosamente.")
 
-            # Cargar datos del dataset
-            self.data_id = args.data_id
-            log.info(f"Cargando datos del dataset: {self.data_id}")
-            self.data = self._cargar_datos(self.data_id)
-            log.info(f"Datos cargados: {len(self.data)} registros.")
-
-            # Cargar scaler para normalización (NUEVO)
-            log.info("Cargando scaler para normalización...")
-            self.scaler = self._cargar_scaler(self.data_id)
-
-            # Guardar args para uso posterior (evaluación)
-            self.data_eval_id = args.data_eval_id
+            # Guardar parámetros de fechas para entrenamiento y evaluación
+            self.train_start = args.train_start_date
+            self.train_end = args.train_end_date
+            self.eval_start = args.eval_start_date
+            self.eval_end = args.eval_end_date
             self.episodios_eval = args.episodios_eval
+
+            # Inicializar cliente de Binance para descarga de datos
+            log.info("Inicializando cliente de Binance...")
+            self.client = Client()  # Cliente público (sin API keys)
 
             # Crear componentes del entrenamiento
             log.debug("Creando portafolio...")
             self.portafolio = Portafolio(self.config)
             log.debug("Portafolio creado exitosamente.")
 
-            log.debug("Creando entorno de trading...")
-            self.entorno = TradingEnv(
-                self.config, 
-                self.data, 
-                self.portafolio,
-                scaler=self.scaler  # ← NUEVO: Pasar scaler al entorno
-            )
-            log.debug("Entorno de trading creado exitosamente.")
+            # El agente se creará después de descargar los datos de entrenamiento
+            self.agente = None
 
-            # Calcular timesteps totales
-            log.debug("Calculando timesteps totales...")
-            max_steps_per_episode: int = (
-                len(self.data) - self.config.entorno.window_size
-            )
-            total_timesteps: int = calcular_steps(
-                self.config.entorno.episodios, max_steps_per_episode
-            )
-            log.info(f"Timesteps totales calculados: {total_timesteps}")
-
-            log.debug("Creando agente SAC...")
-            self.agente = AgenteSac(self.config, total_timesteps)
-            
-            # Crear directorios de salida (NUEVO)
+            # Crear directorios de salida
             log.debug("Creando estructura de directorios...")
             self._crear_directorios()
-            
-            log.info("Entrenamiento inicializado correctamente.")
+
+            log.info("Inicialización completada correctamente.")
+            log.info(f"Periodo de entrenamiento: {self.train_start} a {self.train_end}")
+            log.info(f"Periodo de evaluación: {self.eval_start} a {self.eval_end}")
 
         except Exception as e:
-            log.error(f"Error durante la inicialización del entrenamiento: {e}")
+            log.error(f"Error durante la inicialización: {e}")
             log.error("Detalles del error:", exc_info=True)
             raise
 
-    def _cargar_datos(self, data_id: str) -> pd.DataFrame:
-        """Carga los datos procesados desde el dataset."""
-        try:
-            log.debug(f"Intentando cargar datos desde dataset: {data_id}")
-            # Cargar datos
-            data_path: str = f"datasets/{data_id}/data.csv"
-            log.debug(f"Ruta del archivo: {data_path}")
-
-            data: pd.DataFrame = pd.read_csv(data_path, index_col=0, parse_dates=True)
-
-            # Validar datos cargados
-            if data.empty:
-                raise ValueError(f"El dataset {data_id} está vacío")
-
-            log.info(f"Datos cargados exitosamente desde: {data_path}")
-            log.debug(f"Shape de los datos: {data.shape}")
-            log.debug(f"Columnas disponibles: {list(data.columns)}")
-
-            return data
-
-        except FileNotFoundError as e:
-            log.error(f"No se encontró el archivo del dataset {data_id}: {e}")
-            log.error(f"Verifique que existe el archivo: datasets/{data_id}/data.csv")
-            raise
-        except pd.errors.EmptyDataError as e:
-            log.error(f"El archivo del dataset {data_id} está vacío: {e}")
-            raise
-        except pd.errors.ParserError as e:
-            log.error(f"Error al parsear el archivo CSV del dataset {data_id}: {e}")
-            raise
-        except Exception as e:
-            log.error(f"Error inesperado al cargar datos del dataset {data_id}: {e}")
-            raise
-
-    def _cargar_scaler(self, data_id: str) -> Optional[StandardScaler]:
-        """Carga el scaler desde el dataset, si existe."""
-        scaler_path: str = f"datasets/{data_id}/scaler.pkl"
+    def _descargar_y_preprocesar(
+        self, start_date: str, end_date: str
+    ) -> Tuple[pd.DataFrame, StandardScaler]:
+        """Descarga y preprocesa datos para un rango de fechas específico.
         
+        Args:
+            start_date: Fecha de inicio en formato 'YYYY-MM-DD'
+            end_date: Fecha de fin en formato 'YYYY-MM-DD'
+            
+        Returns:
+            Tupla (datos_preprocesados, scaler_ajustado)
+        """
+        log.info(f"Descargando y preprocesando datos: {start_date} a {end_date}")
+
         try:
-            log.debug(f"Intentando cargar scaler desde: {scaler_path}")
-            
-            if not os.path.exists(scaler_path):
-                log.warning(f"No se encontró scaler en {scaler_path}. Se usarán observaciones sin normalizar.")
-                return None
-            
-            scaler: StandardScaler = joblib.load(scaler_path)
-            log.info(f"✅ Scaler cargado exitosamente desde: {scaler_path}")
-            log.debug(f"Características del scaler: {scaler.feature_names_in_ if hasattr(scaler, 'feature_names_in_') else 'No disponible'}")
-            
-            return scaler
-            
+            # Actualizar temporalmente la configuración con las fechas específicas
+            self.config.data_downloader.start_date = start_date
+            self.config.data_downloader.end_date = end_date
+
+            # 1. Descargar datos
+            log.info("Paso 1: Descargando datos desde Binance...")
+            downloader = DataDownloader(self.client, self.config)
+            data_raw = downloader.run()
+            log.info(f"Datos descargados: {len(data_raw)} registros.")
+
+            # 2. Preprocesar datos
+            log.info("Paso 2: Preprocesando datos (indicadores + normalización)...")
+            preprocesador = Preprocesamiento(self.config)
+            data_procesado, scaler = preprocesador.run(data_raw)
+            log.info(f"Preprocesamiento completado. Datos finales: {len(data_procesado)} registros.")
+
+            return data_procesado, scaler
+
         except Exception as e:
-            log.error(f"Error al cargar scaler desde {scaler_path}: {e}")
-            log.warning("Se continuará sin normalización")
-            return None
+            log.error(f"Error en descarga/preprocesamiento de datos: {e}")
+            log.error("Detalles del error:", exc_info=True)
+            raise
+
+    def _guardar_scaler(self, scaler: StandardScaler, filepath: str) -> None:
+        """Guarda el scaler en la ruta especificada."""
+        try:
+            log.info(f"Guardando scaler en: {filepath}")
+            joblib.dump(scaler, filepath)
+            log.debug(f"✅ Scaler guardado exitosamente.")
+
+        except Exception as e:
+            log.error(f"Error al guardar scaler: {e}")
+            raise
 
     def _crear_directorios(self) -> None:
         """Crea la estructura de directorios necesaria para guardar los resultados."""
         try:
+            if self.config.Output is None:
+                raise ValueError("La configuración de salida (Output) no está definida")
+
             base_dir: str = self.config.Output.base_dir
-            log.debug(f"Creando estructura de directorios en: {base_dir}")
-            
-            # Crear directorios principales
+
+            # Crear directorios
             directorios: list[str] = [
                 base_dir,
                 f"{base_dir}/modelos",
                 f"{base_dir}/tensorboard",
                 f"{base_dir}/evaluacion",
             ]
-            
+
             for directorio in directorios:
                 os.makedirs(directorio, exist_ok=True)
                 log.debug(f"Directorio creado/verificado: {directorio}")
-            
-            log.info("Estructura de directorios creada exitosamente")
-            
+
+            log.info(f"Estructura de directorios creada en: {base_dir}")
+
         except Exception as e:
             log.error(f"Error al crear directorios: {e}")
             raise
 
     def entrenar(self) -> None:
-        """Ejecuta el proceso de entrenamiento."""
-        log.info("Iniciando entrenamiento del agente...")
+        """Ejecuta el proceso de entrenamiento con descarga integrada de datos."""
+        log.info("=" * 80)
+        log.info("FASE 1: ENTRENAMIENTO")
+        log.info("=" * 80)
 
         try:
-            # Crear el modelo del agente
-            log.info("Creando modelo SAC...")
-            self.agente.CrearModelo(self.entorno)
-            log.info("Modelo SAC creado exitosamente.")
+            # 1. Descargar y preprocesar datos de entrenamiento
+            log.info("Descargando datos de entrenamiento...")
+            train_data, train_scaler = self._descargar_y_preprocesar(
+                self.train_start, self.train_end
+            )
 
-            # Entrenar el agente
-            log.info("Comenzando entrenamiento...")
-            log.info(f"Episodios configurados: {self.config.entorno.episodios}")
+            # 2. Guardar scaler de entrenamiento
+            if self.config.Output is None:
+                raise ValueError("La configuración de salida no está definida")
+            
+            scaler_train_path = self.config.Output.scaler_train_path
+            self._guardar_scaler(train_scaler, scaler_train_path)
+
+            # 3. Crear entorno de entrenamiento
+            log.info("Creando entorno de trading para entrenamiento...")
+            entorno_train = TradingEnv(
+                self.config,
+                train_data,
+                self.portafolio,
+                scaler=train_scaler  # Usar scaler de train
+            )
+            log.debug("Entorno de trading creado exitosamente.")
+
+            # 4. Calcular timesteps totales
+            log.debug("Calculando timesteps totales...")
+            max_steps_per_episode: int = (
+                len(train_data) - self.config.entorno.window_size
+            )
+            total_timesteps: int = calcular_steps(
+                self.config.entorno.episodios, max_steps_per_episode
+            )
+            log.info(f"Timesteps totales calculados: {total_timesteps}")
+
+            # 5. Crear y entrenar agente SAC
+            log.info("Creando agente SAC...")
+            self.agente = AgenteSac(self.config, total_timesteps)
+            self.agente.CrearModelo(entorno_train)
+
+            log.info("Iniciando entrenamiento del agente...")
             self.agente.train()
-            log.info("Entrenamiento del agente completado.")
 
-            # Guardar el modelo entrenado
+            # 6. Guardar modelo entrenado
             log.info("Guardando modelo entrenado...")
             self.agente.GuardarModelo()
-            log.info("Modelo guardado exitosamente.")
 
-            # --- Evaluación automática si se proporcionó data_eval_id en CLI ---
+            log.info("✅ Entrenamiento completado exitosamente.")
 
-            if self.data_eval_id:
-                try:
-                    log.info(f"Iniciando evaluación con dataset: {self.data_eval_id}")
-                    eval_data = self._cargar_datos(self.data_eval_id)
-                    
-                    # Cargar scaler del dataset de evaluación (NUEVO)
-                    eval_scaler = self._cargar_scaler(self.data_eval_id)
-                    
-                    eval_portafolio = Portafolio(self.config)
-                    eval_env = TradingEnv(
-                        self.config, 
-                        eval_data, 
-                        eval_portafolio,
-                        scaler=eval_scaler  # ← NUEVO: Usar scaler del dataset de evaluación
-                    )
-
-                    max_steps_eval = len(eval_data) - self.config.entorno.window_size
-                    # Ejecutar evaluación (esto guardará los 3 CSVs en Output.base_dir/evaluacion)
-                    results = self.agente.EvaluarEnv(
-                        eval_env,
-                        n_episodes=self.episodios_eval,
-                        max_steps_per_episode=max_steps_eval,
-                        save_dir=self.config.Output.base_dir,
-                    )
-                    log.info(
-                        f"Evaluación completada. CSVs guardados en: {self.config.Output.base_dir}/evaluacion"
-                    )
-                except Exception as e:
-                    log.error(f"Error durante la evaluación: {e}")
-                    log.error("Detalles:", exc_info=True)
-            else:
-                log.info(
-                    "No se proporcionó dataset de evaluación. Se omite la evaluación."
-                )
-
-            log.info("¡Entrenamiento completado exitosamente!")
+            # 7. LIBERAR MEMORIA - CRÍTICO
+            log.info("Liberando memoria de datos de entrenamiento...")
+            del train_data
+            del entorno_train
+            del train_scaler
+            gc.collect()
+            log.debug("Memoria liberada exitosamente.")
 
         except Exception as e:
             log.error(f"Error durante el entrenamiento: {e}")
             log.error("Detalles del error:", exc_info=True)
             raise
 
-    def _guardar_metadata(self) -> None:
-        """Guarda la configuración completa en un archivo YAML como metadata."""
+    def evaluar(self) -> None:
+        """Ejecuta la evaluación del agente entrenado con datos de evaluación."""
+        log.info("=" * 80)
+        log.info("FASE 2: EVALUACIÓN")
+        log.info("=" * 80)
+
         try:
-            log.info("Guardando metadata de configuración...")
+            # Verificar que el agente existe
+            if self.agente is None:
+                raise RuntimeError(
+                    "El agente no ha sido inicializado. Debe ejecutar entrenar() primero."
+                )
 
-            # Convertir config a diccionario usando Pydantic
-            config_dict = self.config.model_dump()
-
-            # Crear ruta del archivo metadata
-            metadata_path = os.path.join(
-                self.config.Output.base_dir, "config_metadata.yaml"
+            # 1. Descargar y preprocesar datos de evaluación
+            log.info("Descargando datos de evaluación...")
+            eval_data, eval_scaler = self._descargar_y_preprocesar(
+                self.eval_start, self.eval_end
             )
 
-            # Asegurar que el directorio existe
-            os.makedirs(os.path.dirname(metadata_path), exist_ok=True)
+            # 2. Guardar scaler de evaluación (opcional, para trazabilidad)
+            if self.config.Output is None:
+                raise ValueError("La configuración de salida no está definida")
+            
+            if self.config.Output.scaler_eval_path:
+                self._guardar_scaler(eval_scaler, self.config.Output.scaler_eval_path)
 
-            # Guardar en YAML
+            # 3. Crear entorno de evaluación
+            # IMPORTANTE: Usar train_scaler para consistencia con producción
+            # (en producción se usaría el scaler del entrenamiento)
+            log.info("Creando entorno de trading para evaluación...")
+            
+            # Cargar el scaler de entrenamiento
+            train_scaler = joblib.load(self.config.Output.scaler_train_path)
+            
+            eval_env = TradingEnv(
+                self.config,
+                eval_data,
+                self.portafolio,
+                scaler=train_scaler  # ✅ USAR SCALER DE TRAIN (consistencia con producción)
+            )
+            log.debug("Entorno de evaluación creado exitosamente.")
+
+            # 4. Evaluar el agente
+            log.info(f"Evaluando agente con {self.episodios_eval} episodios...")
+            max_steps_per_episode_eval: int = (
+                len(eval_data) - self.config.entorno.window_size
+            )
+
+            self.agente.EvaluarEnv(
+                env=eval_env,
+                n_episodes=self.episodios_eval,
+                max_steps_per_episode=max_steps_per_episode_eval,
+                save_dir=f"{self.config.Output.base_dir}/evaluacion",
+            )
+
+            log.info(
+                f"✅ Evaluación completada. Resultados guardados en: {self.config.Output.base_dir}/evaluacion"
+            )
+
+            # 5. LIBERAR MEMORIA - CRÍTICO
+            log.info("Liberando memoria de datos de evaluación...")
+            del eval_data
+            del eval_env
+            del eval_scaler
+            del train_scaler
+            gc.collect()
+            log.debug("Memoria liberada exitosamente.")
+
+        except Exception as e:
+            log.error(f"Error durante la evaluación: {e}")
+            log.error("Detalles del error:", exc_info=True)
+            raise
+
+    def _guardar_metadata(self) -> None:
+        """Guarda TODA la configuración de UnifiedConfig más metadata adicional en YAML."""
+        try:
+            if self.config.Output is None:
+                raise ValueError("La configuración de salida no está definida")
+
+            metadata_path = os.path.join(
+                self.config.Output.base_dir,
+                self.config.Output.metadata_filename,
+            )
+
+            log.info("Guardando metadata completa del entrenamiento...")
+
+            # Serializar TODO el objeto UnifiedConfig usando model_dump()
+            config_dict = self.config.model_dump()
+
+            # Añadir metadata adicional sobre la ejecución
+            config_dict["metadata_execution"] = {
+                "fecha_ejecucion": datetime.now().isoformat(),
+                "train_date_range": f"{self.train_start} to {self.train_end}",
+                "eval_date_range": f"{self.eval_start} to {self.eval_end}",
+                "episodios_entrenamiento": self.config.entorno.episodios,
+                "episodios_evaluacion": self.episodios_eval,
+                "train_id": os.path.basename(self.config.Output.base_dir),
+            }
+
+            # Guardar en archivo YAML
             with open(metadata_path, "w", encoding="utf-8") as f:
-                yaml.dump(config_dict, f, default_flow_style=False, allow_unicode=True)
+                yaml.dump(config_dict, f, sort_keys=False, default_flow_style=False, allow_unicode=True)
 
-            log.info(f"Metadata guardada en: {metadata_path}")
+            log.info(f"✅ Metadata completa guardada en: {metadata_path}")
 
         except Exception as e:
             log.error(f"Error al guardar metadata: {e}")
             raise
 
     def main(self) -> None:
-        """Función con el flujo principal del entrenamiento."""
+        """Flujo principal unificado: entrenar → evaluar → guardar metadata."""
         try:
-            log.info("Ejecutando flujo principal de entrenamiento...")
+            log.info("=" * 80)
+            log.info("INICIANDO FLUJO UNIFICADO DE ENTRENAMIENTO")
+            log.info("=" * 80)
+
+            # 1. Entrenar
             self.entrenar()
 
-            # Guardar metadata al final del entrenamiento
-            log.info("---- Guardado de metadata ----")
+            # 2. Evaluar
+            self.evaluar()
+
+            # 3. Guardar metadata completa
             self._guardar_metadata()
 
-            log.info("--- Entrenamiento finalizado con éxito ---")
+            log.info("=" * 80)
+            log.info("✅ PROCESO COMPLETO FINALIZADO EXITOSAMENTE")
+            log.info("=" * 80)
 
         except KeyboardInterrupt:
-            log.warning("Entrenamiento interrumpido por el usuario (Ctrl+C)")
-            log.info("Limpiando recursos...")
-            sys.exit(130)  # Exit code for Ctrl+C
+            log.warning("Proceso interrumpido por el usuario (Ctrl+C)")
+            log.info("Intentando guardar progreso parcial...")
+            try:
+                self._guardar_metadata()
+                log.info("Metadata guardada exitosamente.")
+            except Exception:
+                log.error("No se pudo guardar la metadata parcial.")
+            sys.exit(130)
+
         except MemoryError as e:
-            log.error("Error de memoria durante el entrenamiento")
+            log.error("!!! Error de memoria insuficiente !!!")
             log.error(f"Detalles: {e}")
-            log.error("Considere reducir el tamaño del batch o el window_size")
-            sys.exit(1)
+            log.error("Sugerencias: Reduce batch_size, window_size o el número de episodios.")
+            sys.exit(137)
+
         except Exception as e:
-            log.error("!!! El entrenamiento ha fallado !!!")
+            log.error("!!! Error durante el proceso de entrenamiento !!!")
             log.error(f"Error: {e}", exc_info=True)
             sys.exit(1)
 
 
 def main() -> None:
     """Punto de entrada principal del script."""
-    log.info("--- Iniciando script de entrenamiento ---")
+    log.info("--- Iniciando script de entrenamiento unificado ---")
 
     try:
         # Parsear argumentos de línea de comandos
@@ -305,17 +385,24 @@ def main() -> None:
         log.debug(f"Argumentos recibidos: {args}")
 
         # Validar argumentos básicos
-        if not hasattr(args, "data_id") or not args.data_id:
-            raise ValueError("El argumento 'data_id' es requerido")
+        if not hasattr(args, "symbol") or not args.symbol:
+            raise ValueError("El argumento --symbol es requerido")
 
-        log.info(f"Iniciando entrenamiento con dataset: {args.data_id}")
+        if not hasattr(args, "interval") or not args.interval:
+            raise ValueError("El argumento --interval es requerido")
 
-        # Crear y ejecutar entrenamiento
-        log.debug("Creando instancia de entrenamiento...")
+        log.info(
+            f"Configuración: {args.symbol} {args.interval} | "
+            f"Train: {args.train_start_date} - {args.train_end_date} | "
+            f"Eval: {args.eval_start_date} - {args.eval_end_date}"
+        )
+
+        # Crear y ejecutar entrenamiento unificado
+        log.debug("Creando instancia de entrenamiento unificado...")
         entrenamiento: Entrenamiento = Entrenamiento(args)
         entrenamiento.main()
 
-        log.info("--- Script de entrenamiento finalizado exitosamente ---")
+        log.info("--- Script de entrenamiento unificado finalizado exitosamente ---")
 
     except KeyboardInterrupt:
         log.warning("Script interrumpido por el usuario (Ctrl+C)")

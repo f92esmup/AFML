@@ -40,10 +40,10 @@ class PreprocesamientoConfig(BaseModel):
 
 class DataDownloaderConfig(BaseModel):
     """Configuración para la descarga de datos."""
-    symbol: Optional[str] = Field(None, description="Símbolo del par de criptomonedas (ej. 'BTCUSDT').")
-    interval: Optional[str] = Field(None, description="Intervalo de tiempo de las velas (ej. '1h', '4h', '1d').")
-    start_date: Optional[str] = Field(None, pattern=r'^\d{4}-\d{2}-\d{2}$', description="Fecha de inicio en formato 'YYYY-MM-DD'.")
-    end_date: Optional[str] = Field(None, pattern=r'^\d{4}-\d{2}-\d{2}$', description="Fecha de fin en formato 'YYYY-MM-DD'.")
+    symbol: str = Field(..., description="Símbolo del par de criptomonedas (ej. 'BTCUSDT').")
+    interval: str = Field(..., description="Intervalo de tiempo de las velas (ej. '1h', '4h', '1d').")
+    start_date: str = Field(..., pattern=r'^\d{4}-\d{2}-\d{2}$', description="Fecha de inicio en formato 'YYYY-MM-DD'.")
+    end_date: str = Field(..., pattern=r'^\d{4}-\d{2}-\d{2}$', description="Fecha de fin en formato 'YYYY-MM-DD'.")
     limit: int = Field(..., gt=0, le=1500, description="Límite máximo de datos por llamada a la API (máx 1500).")
 
 
@@ -117,19 +117,14 @@ class DatasetConfig(BaseModel):
 # Clases de Configuración - Output
 ##########################################################################################################
 
-class OutputDataAcquisitionConfig(BaseModel):
-    """Configuración de salida para adquisición de datos."""
-    root: str = Field(..., description="Prefijo de la carpeta de salida, identificado con el data_id.")
-    data_filename: str = Field(..., description="Nombre del archivo de datos.")
-    metadata_filename: str = Field(..., description="Nombre del archivo de metadatos.")
-    scaler_filename: str = Field(..., description="Nombre del archivo del scaler.")
-
-
-class OutputTrainingConfig(BaseModel):
-    """Configuración de salida para entrenamiento."""
+class OutputConfig(BaseModel):
+    """Configuración de salida unificada para entrenamiento."""
     base_dir: str = Field(..., description="Directorio base para guardar todos los outputs del entrenamiento.")
     model_path: str = Field(..., description="Ruta para guardar el modelo entrenado.")
     tensorboard_log: str = Field(..., description="Ruta para los logs de TensorBoard.")
+    scaler_train_path: str = Field(..., description="Ruta para guardar el scaler de entrenamiento.")
+    scaler_eval_path: Optional[str] = Field(None, description="Ruta para guardar el scaler de evaluación (opcional).")
+    metadata_filename: str = Field(default="config_metadata.yaml", description="Nombre del archivo de metadatos.")
 
 
 ##########################################################################################################
@@ -144,47 +139,16 @@ class UnifiedConfig(BaseModel):
     entorno: EntornoConfig
     SACmodel: SACModelConfig
     policy_kwargs: PolicyKwargsConfig
-    output: Optional[Union[OutputDataAcquisitionConfig, OutputTrainingConfig, Dict[str, Any]]] = None
-    Output: Optional[OutputTrainingConfig] = None  # Para mantener compatibilidad con código de entrenamiento
-    Datasets: Optional[DatasetConfig] = None
+    Output: Optional[OutputConfig] = None  # Configuración de salida unificada
 
     @classmethod
-    def load_for_data_acquisition(cls, args: argparse.Namespace) -> "UnifiedConfig":
+    def load_for_unified_training(cls, args: argparse.Namespace) -> "UnifiedConfig":
         """
-        Carga la configuración para adquisición de datos.
-        Utilizado por create_dataset.py
+        Carga la configuración para el flujo unificado de entrenamiento.
+        Integra descarga de datos + entrenamiento + evaluación en un solo paso.
+        Utilizado por train.py (nuevo flujo).
         """
-        log.info("Cargando configuración para adquisición de datos...")
-        
-        try:
-            # Cargar archivo YAML
-            with open(args.config, "r", encoding="utf-8") as file:
-                yaml_config = yaml.safe_load(file)
-        except (FileNotFoundError, yaml.YAMLError) as e:
-            raise ValueError(f"Error al cargar el archivo de configuración: {e}")
-
-        # Añadir argumentos CLI específicos de data acquisition
-        try:
-            yaml_config = cls._add_cli_args_data_acquisition(args, yaml_config)
-        except KeyError as e:
-            raise ValueError(f"Error: Falta un campo requerido en la configuración: {e}")
-
-        try:
-            config = cls(**yaml_config)
-            log.info("Configuración de adquisición de datos cargada exitosamente")
-            return config
-        except ValidationError as e:
-            log.error("Error: La configuración no es válida. Revisa los siguientes campos:")
-            log.error(str(e))
-            raise
-
-    @classmethod
-    def load_for_training(cls, args: argparse.Namespace) -> "UnifiedConfig":
-        """
-        Carga la configuración para entrenamiento.
-        Utilizado por train.py
-        """
-        log.info("Cargando configuración del sistema de entrenamiento...")
+        log.info("Cargando configuración para flujo unificado de entrenamiento...")
 
         try:
             # Validar argumentos de entrada
@@ -212,29 +176,19 @@ class UnifiedConfig(BaseModel):
                 log.error(f"Error de formato YAML: {e}")
                 raise ValueError(f"Error al parsear el archivo YAML: {e}")
 
-            # Añadir argumentos CLI
+            # Integrar argumentos CLI (symbol, interval, fechas, episodios)
             try:
                 log.debug("Integrando argumentos de línea de comandos...")
-                yaml_config = cls._add_cli_args_training(args, yaml_config)
+                yaml_config = cls._add_cli_args_unified(args, yaml_config)
                 log.debug("Argumentos CLI integrados exitosamente")
             except KeyError as e:
                 log.error(f"Campo requerido faltante en configuración: {e}")
                 raise ValueError(f"Error: Falta un campo requerido en la configuración: {e}")
 
-            # Crear las rutas Output
+            # Crear las rutas de Output basadas en train_id
             try:
                 log.debug("Configurando rutas de salida...")
-                yaml_config = cls._add_output_paths(yaml_config, args.data_id)
-                
-                # Intentar añadir metadata del dataset
-                try:
-                    yaml_config = cls._add_dataset_info(
-                        yaml_config, args.data_id, getattr(args, "data_eval_id", None)
-                    )
-                    log.debug("Metadata del dataset integrada en la configuración")
-                except Exception as e:
-                    log.warning(f"No se pudo integrar metadata del dataset: {e}")
-                
+                yaml_config = cls._add_output_paths_unified(args, yaml_config)
                 log.debug("Rutas de salida configuradas exitosamente")
             except ValueError as e:
                 log.error(f"Error al configurar rutas: {e}")
@@ -259,51 +213,30 @@ class UnifiedConfig(BaseModel):
             raise
 
     @classmethod
-    def _add_cli_args_data_acquisition(
+    def _add_cli_args_unified(
         cls, args: argparse.Namespace, yaml_config: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """Añade los argumentos de argparse al diccionario de configuración YAML (data acquisition)."""
-        
-        # Sobrescribir con los argumentos de argparse
-        yaml_config['data_downloader']['symbol'] = args.symbol
-        yaml_config['data_downloader']['interval'] = args.interval
-        yaml_config['data_downloader']['start_date'] = args.start_date
-        yaml_config['data_downloader']['end_date'] = args.end_date or datetime.now().strftime('%Y-%m-%d')
-        
-        # Crear el data_id y configurar output
-        data_id = cls._data_id(args.symbol)
-        yaml_config['output'] = {
-            'root': data_id,
-            'data_filename': yaml_config.get('output', {}).get('data_filename', 'data.csv'),
-            'metadata_filename': yaml_config.get('output', {}).get('metadata_filename', 'metadata.yaml'),
-            'scaler_filename': yaml_config.get('output', {}).get('scaler_filename', 'scaler.pkl'),
-        }
-        
-        return yaml_config
-
-    @classmethod
-    def _add_cli_args_training(
-        cls, args: argparse.Namespace, yaml_config: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """Añade los argumentos de argparse al diccionario de configuración YAML (training)."""
-        log.debug("Procesando argumentos de línea de comandos...")
+        """Añade los argumentos de argparse al diccionario de configuración YAML (flujo unificado)."""
+        log.debug("Procesando argumentos de línea de comandos para flujo unificado...")
 
         try:
-            # Validar que los argumentos requeridos estén presentes
-            if not hasattr(args, "episodios"):
-                raise KeyError("Falta el argumento 'episodios'")
+            # Configurar data_downloader con parámetros de ENTRENAMIENTO
+            # (los de evaluación se configurarán dinámicamente durante la ejecución)
+            yaml_config['data_downloader']['symbol'] = args.symbol
+            yaml_config['data_downloader']['interval'] = args.interval
+            yaml_config['data_downloader']['start_date'] = args.train_start_date
+            yaml_config['data_downloader']['end_date'] = args.train_end_date
 
-            if args.episodios <= 0:
-                raise ValueError(f"El número de episodios debe ser positivo: {args.episodios}")
-
-            # Validar estructura de configuración
+            # Configurar número de episodios
             if "entorno" not in yaml_config:
                 raise KeyError("Falta la sección 'entorno' en la configuración")
 
-            # Sobrescribir con los argumentos de argparse
             yaml_config["entorno"]["episodios"] = args.episodios
 
-            log.debug(f"Episodios configurados: {args.episodios}")
+            log.debug(
+                f"Argumentos integrados: symbol={args.symbol}, interval={args.interval}, "
+                f"train={args.train_start_date} a {args.train_end_date}, episodios={args.episodios}"
+            )
             return yaml_config
 
         except Exception as e:
@@ -311,23 +244,19 @@ class UnifiedConfig(BaseModel):
             raise
 
     @staticmethod
-    def _data_id(symbol: str) -> str:
-        """Devuelve el data_id para nombrar la carpeta de salida.
-        El data_id es una combinación del símbolo y la fecha de creación.
+    def _generate_train_id(
+        symbol: str,
+        train_start: str,
+        train_end: str,
+        yaml_config: Dict[str, Any]
+    ) -> str:
+        """Genera el train_id para nombrar la carpeta de salida del entrenamiento.
+        
+        Formato: train_{symbol}_{train_start}_{train_end}_lr{lr}_bs{batch}_ws{window}_{timestamp}
         """
-        date = datetime.now().strftime('%Y%m%d_%H%M%S')
-        return f"datasets/{symbol}_{date}"
-
-    @staticmethod
-    def _train_id(yaml_config: Dict[str, Any], data_id: str) -> str:
-        """Devuelve el train_id para nombrar la carpeta de salida del entrenamiento."""
         log.debug("Generando ID de entrenamiento...")
 
         try:
-            # Validar parámetros de entrada
-            if not data_id or not data_id.strip():
-                raise ValueError("El data_id no puede estar vacío")
-
             timestamp: str = datetime.now().strftime("%Y%m%d_%H%M%S")
 
             # Extraer parámetros clave con verificación
@@ -352,8 +281,13 @@ class UnifiedConfig(BaseModel):
             batch_size: int = sac_config["batch_size"]
             window_size: int = entorno_config["window_size"]
 
+            # Formatear fechas para el ID (sin guiones)
+            train_start_fmt = train_start.replace('-', '')
+            train_end_fmt = train_end.replace('-', '')
+
             train_id: str = (
-                f"train_{data_id}_lr{lr}_bs{batch_size}_ws{window_size}_{timestamp}"
+                f"train_{symbol}_{train_start_fmt}_{train_end_fmt}_"
+                f"lr{lr}_bs{batch_size}_ws{window_size}_{timestamp}"
             )
 
             log.debug(f"Train ID generado: {train_id}")
@@ -367,30 +301,33 @@ class UnifiedConfig(BaseModel):
             raise ValueError(f"Error al generar train_id: {e}")
 
     @staticmethod
-    def _add_output_paths(yaml_config: Dict[str, Any], data_id: str) -> Dict[str, Any]:
-        """Añade rutas de salida compactas al diccionario de configuración YAML."""
-        log.debug("Configurando rutas de salida...")
+    def _add_output_paths_unified(
+        args: argparse.Namespace, yaml_config: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Añade rutas de salida al diccionario de configuración YAML para el flujo unificado."""
+        log.debug("Configurando rutas de salida para flujo unificado...")
 
         try:
-            # Validar parámetros de entrada
-            if not data_id or not data_id.strip():
-                raise ValueError("El data_id no puede estar vacío")
-
-            train_id: str = UnifiedConfig._train_id(yaml_config, data_id)
+            # Generar train_id
+            train_id: str = UnifiedConfig._generate_train_id(
+                args.symbol,
+                args.train_start_date,
+                args.train_end_date,
+                yaml_config
+            )
             base_dir: str = f"entrenamientos/{train_id}"
-
-            # Inicializar sección Output si no existe
-            if "Output" not in yaml_config:
-                yaml_config["Output"] = {}
 
             # Configurar rutas de salida
             output_config: Dict[str, str] = {
                 "base_dir": base_dir,
                 "model_path": f"{base_dir}/modelos/modelo",
                 "tensorboard_log": f"{base_dir}/tensorboard/",
+                "scaler_train_path": f"{base_dir}/scaler_train.pkl",
+                "scaler_eval_path": f"{base_dir}/scaler_eval.pkl",
+                "metadata_filename": "config_metadata.yaml",
             }
 
-            yaml_config["Output"].update(output_config)
+            yaml_config["Output"] = output_config
 
             log.debug(f"Directorio base configurado: {base_dir}")
             return yaml_config
@@ -398,52 +335,3 @@ class UnifiedConfig(BaseModel):
         except Exception as e:
             log.error(f"Error al configurar rutas de salida: {e}")
             raise ValueError(f"Error al configurar rutas de salida: {e}")
-
-    @staticmethod
-    def _add_dataset_info(
-        yaml_config: Dict[str, Any], data_id: str, data_eval_id: Optional[str] = None
-    ) -> Dict[str, Any]:
-        """Lee datasets/{data_id}/metadata.yaml para extraer symbol e interval y los añade al yaml_config."""
-        log.debug("Integrando información del dataset en la configuración...")
-
-        if not data_id or not data_id.strip():
-            raise ValueError("El data_id no puede estar vacío")
-
-        # valores por defecto
-        datasets_section: Dict[str, Any] = {
-            "train": data_id,
-            "eval": data_eval_id,
-            "symbol": None,
-            "intervalo": None
-        }
-
-        # Helper para leer metadata
-        def _read_meta(path: str) -> Dict[str, Any]:
-            try:
-                if not os.path.exists(path):
-                    log.debug(f"Metadata no encontrada: {path}")
-                    return {}
-                with open(path, "r", encoding="utf-8") as f:
-                    return yaml.safe_load(f) or {}
-            except Exception as e:
-                log.error(f"Error leyendo metadata {path}: {e}")
-                return {}
-
-        # Leer metadata del dataset train
-        train_meta = _read_meta(f"datasets/{data_id}/metadata.yaml")
-        dd = train_meta.get("data_downloader", {})
-        if dd:
-            datasets_section["symbol"] = dd.get("symbol") or dd.get("symbol".lower())
-            datasets_section["intervalo"] = dd.get("interval") or dd.get("intervalo") or dd.get("interval".lower())
-
-        # Leer metadata del dataset eval si aplica
-        if data_eval_id:
-            eval_meta = _read_meta(f"datasets/{data_eval_id}/metadata.yaml")
-            edd = eval_meta.get("data_downloader", {})
-            if edd:
-                datasets_section["symbol_eval"] = edd.get("symbol") or edd.get("symbol".lower())
-                datasets_section["intervalo_eval"] = edd.get("interval") or edd.get("intervalo") or edd.get("interval".lower())
-
-        # Añadir al yaml_config
-        yaml_config["Datasets"] = datasets_section
-        return yaml_config
