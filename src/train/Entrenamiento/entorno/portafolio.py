@@ -574,20 +574,47 @@ class Portafolio:
             raise
     
     def _calcular_cantidad_invertir(self, precio: float, porcentaje_inversion: float) -> float:
-        """Calcula la cantidad a invertir basada en un porcentaje del balance y el tipo de operación."""
+        """Calcula la cantidad a invertir basada en un porcentaje del balance y el tipo de operación.
+        
+        IMPORTANTE: Ajusta la cantidad para asegurar que el costo total (margen + comisión + slippage)
+        no exceda el balance disponible, considerando un margen de seguridad del 0.1%.
+        """
         try:
             if precio <= 0:
                 raise ValueError(f"Precio inválido: {precio}")
             if porcentaje_inversion <= 0 or porcentaje_inversion > 1:
                 raise ValueError(f"Porcentaje de inversión inválido: {porcentaje_inversion}")
-                
-            equity_actual: float = self.get_equity(precio)
-            cantidad: float = (equity_actual * self.apalancamiento * porcentaje_inversion) / precio
             
-            if cantidad <= 0:
-                raise ValueError(f"Cantidad calculada inválida: {cantidad}")
+            # Usar equity para el cálculo inicial
+            equity_actual: float = self.get_equity(precio)
+            
+            # Calcular cantidad objetivo
+            cantidad_objetivo: float = (equity_actual * self.apalancamiento * porcentaje_inversion) / precio
+            
+            if cantidad_objetivo <= 0:
+                raise ValueError(f"Cantidad calculada inválida: {cantidad_objetivo}")
+            
+            # Calcular costo total estimado
+            margen_estimado: float = (precio * cantidad_objetivo) / self.apalancamiento
+            comision_estimada: float = precio * cantidad_objetivo * self.comision_prc
+            slippage_estimado: float = precio * cantidad_objetivo * self.slippage_prc
+            costo_total_estimado: float = margen_estimado + comision_estimada + slippage_estimado
+            
+            # Si el costo excede el balance, ajustar la cantidad con margen de seguridad
+            if costo_total_estimado > self._balance:
+                # Factor de ajuste: balance_disponible / costo_estimado con 0.1% de margen
+                factor_seguridad: float = 0.999  # 99.9% para evitar problemas de redondeo
+                factor_ajuste: float = (self._balance / costo_total_estimado) * factor_seguridad
+                cantidad_ajustada: float = cantidad_objetivo * factor_ajuste
                 
-            return cantidad
+                log.debug(
+                    f"Cantidad ajustada de {cantidad_objetivo:.8f} a {cantidad_ajustada:.8f} "
+                    f"(factor: {factor_ajuste:.4f}) para no exceder balance"
+                )
+                
+                return cantidad_ajustada
+            
+            return cantidad_objetivo
             
         except Exception as e:
             log.error(f"Error al calcular cantidad a invertir: {e}")

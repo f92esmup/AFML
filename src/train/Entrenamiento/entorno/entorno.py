@@ -332,11 +332,10 @@ class TradingEnv(gym.Env):
 
             ventana_datos: np.ndarray = self.data_array[start:end]
 
-            # 2. APLICAR NORMALIZACIÓN si el scaler está disponible (NUEVO)
+            # 2. APLICAR NORMALIZACIÓN si el scaler está disponible
             if self.scaler is not None:
                 try:
-                    # El scaler espera shape (n_samples, n_features)
-                    # ventana_datos ya tiene shape (window_size, n_features)
+                    # Transformación directa con NumPy (más eficiente)
                     ventana_normalizada = self.scaler.transform(ventana_datos)
                     market_obs = ventana_normalizada.astype(np.float32)
                     
