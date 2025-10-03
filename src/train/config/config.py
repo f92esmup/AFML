@@ -67,6 +67,11 @@ class EntornoConfig(BaseModel):
     umbral_mantener_posicion: float = Field(..., gt=0, lt=1, description="Umbral para mantener la posición actual.")
     penalizacion_no_operar: float = Field(..., ge=0, description="Penalización aplicada cuando el agente no realiza ninguna operación (recompensa == 0).")
     episodios: int = Field(0, ge=0, description="Número total de episodios para entrenar el agente.")
+    
+    # Normalización
+    normalizar_portfolio: bool = Field(True, description="Activar normalización de portfolio observation (equity y PnL).")
+    normalizar_recompensa: bool = Field(True, description="Usar retornos porcentuales en vez de absolutos para recompensas.")
+    penalizacion_pct: float = Field(0.00001, ge=0, description="Penalización por no operar expresada como porcentaje del capital inicial.")
 
 
 class NetArchConfig(BaseModel):

@@ -7,10 +7,14 @@ import numpy as np
 import logging
 from typing import Tuple, Dict, Any, Optional, List
 from sklearn.preprocessing import StandardScaler
+import warnings
 
 from src.train.config.config import UnifiedConfig
 from src.train.Entrenamiento.entorno.portafolio import Portafolio
 from src.train.Entrenamiento.entorno.info_builder import build_info_dict
+
+# Ignorar advertencias de sklearn y otras librerías
+warnings.filterwarnings("ignore")
 
 # Configurar logger
 log: logging.Logger = logging.getLogger("AFML.entorno")
@@ -95,10 +99,15 @@ class TradingEnv(gym.Env):
             # Penalización cuando el agente no opera (evita aprendizaje por inacción)
             self.penalizacion_no_operar: float = config.entorno.penalizacion_no_operar
 
+            # Configuración de normalización (NUEVO)
+            self.normalizar_portfolio: bool = config.entorno.normalizar_portfolio
+            self.normalizar_recompensa: bool = config.entorno.normalizar_recompensa
+            self.penalizacion_pct: float = config.entorno.penalizacion_pct
+
             # Usamos prev_equity para calcular recompensa relativa basada en equity
             self.prev_equity: float = 0.0
 
-            # Configurar scaler para normalización (NUEVO)
+            # Configurar scaler para normalización de datos de mercado
             self.scaler: Optional[StandardScaler] = scaler
             
             # Validar compatibilidad del scaler si está presente
@@ -111,10 +120,21 @@ class TradingEnv(gym.Env):
                         log.error(f"Datos tienen: {self.numeric_columns}")
                         raise ValueError("Incompatibilidad entre scaler y datos")
                 
-                log.info("✅ Entorno inicializado con normalización de observaciones")
+                log.info("✅ Entorno inicializado con normalización de datos de mercado")
                 log.debug(f"Scaler configurado para {len(self.scaler.feature_names_in_)} características")
             else:
-                log.warning("⚠️  Entorno SIN normalización - scaler no proporcionado")
+                log.warning("⚠️  Datos de mercado SIN normalización - scaler no proporcionado")
+            
+            # Log de configuración de normalización
+            if self.normalizar_portfolio:
+                log.info("✅ Normalización de portfolio observation ACTIVADA (Opción A: Estática)")
+            else:
+                log.warning("⚠️  Portfolio observation SIN normalizar")
+            
+            if self.normalizar_recompensa:
+                log.info("✅ Recompensas normalizadas: usando retornos porcentuales")
+            else:
+                log.warning("⚠️  Recompensas en valores absolutos ($)")
 
         except Exception as e:
             log.error(f"Error crítico durante la inicialización del entorno: {e}")
@@ -363,11 +383,32 @@ class TradingEnv(gym.Env):
             if self.portafolio.posicion_abierta is not None:
                 posicion_abierta = float(self.portafolio.posicion_abierta.tipo)
 
-            # 5. Devolver un dict con dos entradas para mayor claridad y compatibilidad con SB3
-            # NOTA: portfolio_obs NO se normaliza, solo market_obs
-            portfolio_obs: np.ndarray = np.array(
-                [equity_actual, pnl_no_realizado, posicion_abierta], dtype=np.float32
-            )
+            # 5. NORMALIZACIÓN DEL PORTFOLIO OBSERVATION (NUEVO)
+            if self.normalizar_portfolio:
+                # Opción A: Normalización Estática basada en capital_inicial
+                # TODO: Implementar Opción B en el futuro - Normalización Dinámica con Running Statistics
+                #       - Rastrear media y std de equity/pnl durante entrenamiento
+                #       - Usar normalización z-score: (valor - media) / std
+                #       - Guardar y cargar estadísticas con el modelo
+                #       - Ventaja: Adaptación automática a diferentes escalas
+                #       - Desventaja: Mayor complejidad, posible inestabilidad inicial
+                
+                equity_normalizado = equity_actual / self.portafolio.balance_inicial
+                
+                # PnL como porcentaje del equity actual (evita división por cero)
+                if equity_actual > 1e-6:  # Threshold para evitar divisiones problemáticas
+                    pnl_pct = pnl_no_realizado / equity_actual
+                else:
+                    pnl_pct = 0.0
+                
+                portfolio_obs: np.ndarray = np.array(
+                    [equity_normalizado, pnl_pct, posicion_abierta], dtype=np.float32
+                )
+            else:
+                # Sin normalizar (comportamiento original)
+                portfolio_obs: np.ndarray = np.array(
+                    [equity_actual, pnl_no_realizado, posicion_abierta], dtype=np.float32
+                )
 
             return {"market": market_obs, "portfolio": portfolio_obs}
 
@@ -410,26 +451,52 @@ class TradingEnv(gym.Env):
             raise
 
     def _recompensa(self, precio: float) -> float:
-        """Calcula la recompensa con validación."""
+        """Calcula la recompensa con validación y normalización opcional."""
         try:
-            # Calculamos la recompensa como cambio relativo del equity:
             equity_actual: float = float(self.portafolio.get_equity(precio))
-            delta_equity: float = equity_actual - self.prev_equity
-
-            if delta_equity < 0:
-                recompensa: float = delta_equity * self.factor_aversion_riesgo
+            
+            if self.normalizar_recompensa:
+                # NUEVA IMPLEMENTACIÓN: Retornos porcentuales
+                if self.prev_equity > 1e-6:  # Evitar división por cero
+                    retorno_pct: float = (equity_actual - self.prev_equity) / self.prev_equity
+                else:
+                    # Primer step o equity muy bajo: retorno = 0
+                    retorno_pct = 0.0
+                
+                # Aplicar factor de aversión al riesgo
+                if retorno_pct < 0:
+                    recompensa: float = retorno_pct * self.factor_aversion_riesgo
+                else:
+                    recompensa = retorno_pct
+                
+                # Penalización por no operar (en escala porcentual)
+                try:
+                    if (
+                        abs(recompensa) < 1e-9  # Prácticamente cero
+                        and self.portafolio.posicion_abierta is None
+                    ):
+                        recompensa -= self.penalizacion_pct
+                except Exception:
+                    pass
+                    
             else:
-                recompensa = delta_equity
-            # Si no hay posición abierta y la recompensa es 0, aplicar penalización
-            try:
-                if (
-                    float(recompensa) == 0.0
-                    and self.portafolio.posicion_abierta is None
-                ):
-                    recompensa = float(recompensa) - float(self.penalizacion_no_operar)
-            except Exception:
-                # En caso de cualquier problema inspeccionando la posición, no bloquear la recompensa
-                pass
+                # IMPLEMENTACIÓN ORIGINAL: Valores absolutos
+                delta_equity: float = equity_actual - self.prev_equity
+
+                if delta_equity < 0:
+                    recompensa = delta_equity * self.factor_aversion_riesgo
+                else:
+                    recompensa = delta_equity
+                
+                # Penalización por no operar (valor absoluto)
+                try:
+                    if (
+                        float(recompensa) == 0.0
+                        and self.portafolio.posicion_abierta is None
+                    ):
+                        recompensa = float(recompensa) - float(self.penalizacion_no_operar)
+                except Exception:
+                    pass
 
             # Actualizamos prev_equity para el siguiente paso
             self.prev_equity = equity_actual
