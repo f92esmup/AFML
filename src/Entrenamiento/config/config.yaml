@@ -35,9 +35,3 @@ policy_kwargs:
     qf: [256, 256]
   log_std_init: -3.0
   n_critics: 2
-
-Vecnormalize:
-  norm_obs: true
-  norm_reward: true
-  clip_obs: 10.0
-  gamma: 0.99

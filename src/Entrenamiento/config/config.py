@@ -77,20 +77,7 @@ class PolicyKwargsConfig(BaseModel):
     n_critics: int = Field(..., description="Número de críticos Q independientes.")
 
 
-class VecNormalizeConfig(BaseModel):
-    """Configuración de VecNormalize."""
 
-    norm_obs: bool = Field(..., description="Normalizar observaciones.")
-    norm_reward: bool = Field(..., description="Normalizar recompensas.")
-    clip_obs: float = Field(
-        ..., description="Límite para el clipping de observaciones."
-    )
-    gamma: float = Field(
-        ...,
-        ge=0,
-        le=1,
-        description="Factor de descuento para normalización de recompensas.",
-    )
 
 
 class SACModelConfig(BaseModel):
@@ -128,9 +115,6 @@ class OutputConfig(BaseModel):
         description="Directorio base para guardar todos los outputs del entrenamiento.",
     )
     model_path: str = Field(..., description="Ruta para guardar el modelo entrenado.")
-    vecnorm_path: str = Field(
-        ..., description="Ruta para guardar las estadísticas de VecNormalize."
-    )
     tensorboard_log: str = Field(..., description="Ruta para los logs de TensorBoard.")
 
 
@@ -155,7 +139,6 @@ class Config(BaseModel):
     entorno: EntornoConfig
     SACmodel: SACModelConfig
     policy_kwargs: PolicyKwargsConfig
-    Vecnormalize: VecNormalizeConfig
     Output: OutputConfig
     Datasets: Optional[DatasetConfig] = None
 
@@ -351,7 +334,6 @@ class Config(BaseModel):
             output_config: Dict[str, str] = {
                 "base_dir": base_dir,
                 "model_path": f"{base_dir}/modelos/modelo",
-                "vecnorm_path": f"{base_dir}/modelos/vecnorm.pkl",
                 "tensorboard_log": f"{base_dir}/tensorboard/",
             }
 

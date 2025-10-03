@@ -171,65 +171,12 @@ class Entrenamiento:
             raise
 
     def _guardar_metadata(self) -> None:
-        """Guarda la configuración completa en un archivo YAML como metadata, incluyendo parámetros de normalización de observaciones y data_id/data_eval_id."""
+        """Guarda la configuración completa en un archivo YAML como metadata."""
         try:
             log.info("Guardando metadata de configuración...")
 
             # Convertir config a diccionario usando Pydantic
             config_dict = self.config.model_dump()
-
-            # Guardar parámetros de normalización de observaciones bajo la clave obs_norm
-            # Solo manejamos el caso en que vec_env.obs_rms es un dict (cuando observation_space es spaces.Dict)
-            vec_env = getattr(self.agente, "vec_env", None)
-            if (
-                vec_env is not None
-                and hasattr(vec_env, "obs_rms")
-                and vec_env.obs_rms is not None
-            ):
-                obs_rms = vec_env.obs_rms
-                if isinstance(obs_rms, dict):
-                    obs_norm = {}
-                    for k, rms in obs_rms.items():
-                        try:
-                            mean = getattr(rms, "mean", None)
-                            var = getattr(rms, "var", None)
-                            count = getattr(rms, "count", None)
-                            # Normalizar mean/var si existen y tienen tolist(),
-                            # manejar None correctamente.
-                            if mean is None:
-                                mean_val = None
-                            elif hasattr(mean, "tolist"):
-                                mean_val = mean.tolist()
-                            else:
-                                mean_val = mean
-
-                            if var is None:
-                                var_val = None
-                            elif hasattr(var, "tolist"):
-                                var_val = var.tolist()
-                            else:
-                                var_val = var
-
-                            obs_norm[k] = {
-                                "mean": mean_val,
-                                "var": var_val,
-                                "count": int(count) if count is not None else None,
-                            }
-                        except Exception as e:
-                            log.error(f"Error extrayendo stats para key '{k}': {e}")
-                            obs_norm[k] = None
-                    clip_obs = getattr(vec_env, "clip_obs", None)
-                    if clip_obs is not None:
-                        obs_norm["_clip_obs"] = float(clip_obs)
-                    config_dict["obs_norm"] = obs_norm
-                else:
-                    # No es dict -> omitimos guardar obs_norm (caso no requerido por el usuario)
-                    log.warning(
-                        "vec_env.obs_rms no es dict — omitiendo guardado de obs_norm"
-                    )
-                    config_dict["obs_norm"] = None
-            else:
-                config_dict["obs_norm"] = None
 
             # Crear ruta del archivo metadata
             metadata_path = os.path.join(
