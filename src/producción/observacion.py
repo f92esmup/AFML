@@ -1,1 +1,0 @@
-""" Normaliza y devuelve la observación para el agente. """

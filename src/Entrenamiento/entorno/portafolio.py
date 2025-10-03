@@ -259,20 +259,12 @@ class Portafolio:
                 log.warning("Ya existe una posición abierta")
                 return False, {'error': 'posicion_ya_existe'}
 
-            # 1. Comprobar si hay equity suficiente para calcular una cantidad útil
-            equity_actual: float = self.get_equity(precio)
-            posible_cantidad: float = 0.0
+            # 1. Calcular la cantidad a invertir y manejar posibles errores
             try:
-                posible_cantidad = (equity_actual * self.apalancamiento * porcentaje_inversion) / precio
-            except Exception:
-                posible_cantidad = 0.0
-
-            if posible_cantidad <= 0:
-                log.warning(f"Capital insuficiente para calcular cantidad: equity={equity_actual}, apalancamiento={self.apalancamiento}, porcentaje={porcentaje_inversion}, precio={precio}")
-                return False, {'operacion': 'abrir_posicion', 'resultado': False, 'error': f"insuficiente_capital: equity={equity_actual}, requerido>0"}
-
-            # 1.b Calcular la cantidad a invertir (valores válidos)
-            cantidad: float = self._calcular_cantidad_invertir(precio, porcentaje_inversion)
+                cantidad: float = self._calcular_cantidad_invertir(precio, porcentaje_inversion)
+            except ValueError as e:
+                log.warning(f"No se pudo abrir la posición porque no se pudo calcular la cantidad a invertir: {e}")
+                return False, {'operacion': 'abrir_posicion', 'resultado': False, 'error': f"calculo_cantidad_invalido: {e}"}
 
             # 2. Calcular el margen requerido para la operación (la "fianza")
             margen_inmediato: float = self._calcular_margen(precio, cantidad)

@@ -13,7 +13,7 @@ entorno:
   episodios: 0
 
 SACmodel:
-  policy: "MlpPolicy"
+  policy: "MultiInputPolicy"
   # --- Hiperparámetros principales de optimización ---
   learning_rate: 3e-4
   buffer_size: 1000000

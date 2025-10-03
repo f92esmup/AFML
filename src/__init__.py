@@ -9,4 +9,4 @@ Se encarga de inicializar y exponer las interfaces públicas de los sub-módulos
 
 __author__ = "Pedro"
 __version__ = "0.1.0"
-__license__ = "MIT" # O la licencia que elijas
+__license__ = "MIT"  # O la licencia que elijas
