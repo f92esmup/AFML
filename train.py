@@ -257,6 +257,8 @@ class Entrenamiento:
             # Cargar el scaler de entrenamiento
             train_scaler = joblib.load(self.config.Output.scaler_train_path)
             
+            self.portafolio.reset()  # Resetear portafolio antes de evaluación
+            
             eval_env = TradingEnv(
                 self.config,
                 eval_data,
