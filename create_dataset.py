@@ -2,11 +2,9 @@
 import logging
 import sys # Añadido para capturar excepciones
 
-from src.AdqusicionDatos import (
-    DataPipeline,
-    parse_args,
-    setup_logger
-    )
+from src.train.AdquisicionDatos import DataPipeline, setup_logger
+from src.train.config import parse_args_data_acquisition
+
 # Configurar logger.
 setup_logger()
 log = logging.getLogger(f"AFML.{__name__}")
@@ -18,7 +16,7 @@ def main():
     try:
         # Parsear argumentos de configuración
         log.info("1. Parseando argumentos de la línea de comandos.")
-        args = parse_args()
+        args = parse_args_data_acquisition()
         log.debug(f"Argumentos recibidos: {args}")
 
         # Inicializar el pipeline de datos

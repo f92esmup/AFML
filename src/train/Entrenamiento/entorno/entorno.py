@@ -6,10 +6,11 @@ import pandas as pd
 import numpy as np
 import logging
 from typing import Tuple, Dict, Any, Optional, List
+from sklearn.preprocessing import StandardScaler
 
-from src.Entrenamiento.config import Config
-from src.Entrenamiento.entorno.portafolio import Portafolio
-from src.Entrenamiento.entorno.info_builder import build_info_dict
+from src.train.config.config import UnifiedConfig
+from src.train.Entrenamiento.entorno.portafolio import Portafolio
+from src.train.Entrenamiento.entorno.info_builder import build_info_dict
 
 # Configurar logger
 log: logging.Logger = logging.getLogger("AFML.entorno")
@@ -17,9 +18,13 @@ log: logging.Logger = logging.getLogger("AFML.entorno")
 
 class TradingEnv(gym.Env):
     def __init__(
-        self, config: Config, data: pd.DataFrame, portafolio: Portafolio
+        self, 
+        config: UnifiedConfig, 
+        data: pd.DataFrame, 
+        portafolio: Portafolio,
+        scaler: Optional[StandardScaler] = None
     ) -> None:
-        """Inicializa el entorno de trading con logging y validación completa."""
+        """Inicializa el entorno de trading con logging, validación y normalización opcional."""
 
         try:
             super().__init__()
@@ -92,6 +97,24 @@ class TradingEnv(gym.Env):
 
             # Usamos prev_equity para calcular recompensa relativa basada en equity
             self.prev_equity: float = 0.0
+
+            # Configurar scaler para normalización (NUEVO)
+            self.scaler: Optional[StandardScaler] = scaler
+            
+            # Validar compatibilidad del scaler si está presente
+            if self.scaler is not None:
+                if hasattr(self.scaler, 'feature_names_in_'):
+                    scaler_features = list(self.scaler.feature_names_in_)
+                    if scaler_features != self.numeric_columns:
+                        log.error("¡Las características del scaler no coinciden con los datos!")
+                        log.error(f"Scaler esperaba: {scaler_features}")
+                        log.error(f"Datos tienen: {self.numeric_columns}")
+                        raise ValueError("Incompatibilidad entre scaler y datos")
+                
+                log.info("✅ Entorno inicializado con normalización de observaciones")
+                log.debug(f"Scaler configurado para {len(self.scaler.feature_names_in_)} características")
+            else:
+                log.warning("⚠️  Entorno SIN normalización - scaler no proporcionado")
 
         except Exception as e:
             log.error(f"Error crítico durante la inicialización del entorno: {e}")
@@ -309,7 +332,23 @@ class TradingEnv(gym.Env):
 
             ventana_datos: np.ndarray = self.data_array[start:end]
 
-            # 2. Calcular la información actual del portafolio (solo una vez)
+            # 2. APLICAR NORMALIZACIÓN si el scaler está disponible (NUEVO)
+            if self.scaler is not None:
+                try:
+                    # El scaler espera shape (n_samples, n_features)
+                    # ventana_datos ya tiene shape (window_size, n_features)
+                    ventana_normalizada = self.scaler.transform(ventana_datos)
+                    market_obs = ventana_normalizada.astype(np.float32)
+                    
+                except Exception as e:
+                    log.error(f"Error al normalizar observación: {e}")
+                    log.warning("Usando datos sin normalizar como fallback")
+                    market_obs = ventana_datos.astype(np.float32)
+            else:
+                # Sin scaler, usar datos originales
+                market_obs = ventana_datos.astype(np.float32)
+
+            # 3. Calcular la información actual del portafolio (solo una vez)
             precio_actual: float = float(
                 self.data_array[self.paso_actual, self.close_idx]
             )
@@ -320,13 +359,13 @@ class TradingEnv(gym.Env):
             # equity actual útil para que el agente tenga una señal del tamaño de la cuenta
             equity_actual: float = float(self.portafolio.get_equity(precio_actual))
 
-            # 3. Obtener la posición abierta
+            # 4. Obtener la posición abierta
             posicion_abierta: float = 0.0
             if self.portafolio.posicion_abierta is not None:
                 posicion_abierta = float(self.portafolio.posicion_abierta.tipo)
 
-            # 4. Devolver un dict con dos entradas para mayor claridad y compatibilidad con SB3
-            market_obs: np.ndarray = ventana_datos.astype(np.float32)
+            # 5. Devolver un dict con dos entradas para mayor claridad y compatibilidad con SB3
+            # NOTA: portfolio_obs NO se normaliza, solo market_obs
             portfolio_obs: np.ndarray = np.array(
                 [equity_actual, pnl_no_realizado, posicion_abierta], dtype=np.float32
             )

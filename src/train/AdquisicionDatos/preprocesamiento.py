@@ -1,16 +1,18 @@
-""" clase para el limpiado y calculo de indicadores """
+"""Script que define el pipeline de preprocesamiento de datos de velas"""
 import pandas as pd
 import pandas_ta as ta
+import numpy as np
 from sklearn.preprocessing import StandardScaler
+from typing import Tuple
 import logging
 
-from src.AdqusicionDatos.config import Config
+from src.train.config.config import UnifiedConfig
 
 log = logging.getLogger(f"AFML.{__name__}")
 
 class Preprocesamiento:
-    
-    def __init__(self, config: Config) -> None:
+
+    def __init__(self, config: UnifiedConfig) -> None:
         log.debug("Inicializando Preprocesamiento...")
         self.df = pd.DataFrame()
 

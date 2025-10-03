@@ -2,20 +2,22 @@
 
 import sys
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 from argparse import Namespace
 import pandas as pd
 import yaml
 import os
+import joblib
+from sklearn.preprocessing import StandardScaler
 
-from src.AdqusicionDatos.utils.logger import setup_logger
-from src.Entrenamiento.config.cli import parse_args
-from src.Entrenamiento.entorno import TradingEnv, Portafolio
-from src.Entrenamiento.agente import AgenteSac
-from src.Entrenamiento.utils.utils import calcular_steps
+from src.train.AdquisicionDatos.utils.logger import setup_logger
+from src.train.config import parse_args_training
+from src.train.Entrenamiento.entorno import TradingEnv, Portafolio
+from src.train.Entrenamiento.agente import AgenteSac
+from src.train.Entrenamiento.utils.utils import calcular_steps
 
 if TYPE_CHECKING:
-    from src.Entrenamiento.config import Config
+    from src.train.config import UnifiedConfig
 
 # Configurar el logger
 setup_logger()
@@ -27,18 +29,19 @@ class Entrenamiento:
         """Inicializa el entrenamiento con la configuración proporcionada."""
         log.info("Inicializando entrenamiento...")
 
-        self.config: "Config"
+        self.config: "UnifiedConfig"
         self.data: pd.DataFrame
         self.portafolio: Portafolio
         self.entorno: TradingEnv
         self.agente: AgenteSac
+        self.scaler: Optional[StandardScaler]
 
         try:
             # Cargar configuración
             log.debug("Cargando configuración...")
-            from src.Entrenamiento.config import Config
+            from src.train.config import UnifiedConfig
 
-            self.config = Config.load_config(args)
+            self.config = UnifiedConfig.load_for_training(args)
             log.debug("Configuración cargada exitosamente.")
 
             # Cargar datos del dataset
@@ -46,6 +49,10 @@ class Entrenamiento:
             log.info(f"Cargando datos del dataset: {self.data_id}")
             self.data = self._cargar_datos(self.data_id)
             log.info(f"Datos cargados: {len(self.data)} registros.")
+
+            # Cargar scaler para normalización (NUEVO)
+            log.info("Cargando scaler para normalización...")
+            self.scaler = self._cargar_scaler(self.data_id)
 
             # Guardar args para uso posterior (evaluación)
             self.data_eval_id = args.data_eval_id
@@ -57,7 +64,12 @@ class Entrenamiento:
             log.debug("Portafolio creado exitosamente.")
 
             log.debug("Creando entorno de trading...")
-            self.entorno = TradingEnv(self.config, self.data, self.portafolio)
+            self.entorno = TradingEnv(
+                self.config, 
+                self.data, 
+                self.portafolio,
+                scaler=self.scaler  # ← NUEVO: Pasar scaler al entorno
+            )
             log.debug("Entorno de trading creado exitosamente.")
 
             # Calcular timesteps totales
@@ -72,6 +84,11 @@ class Entrenamiento:
 
             log.debug("Creando agente SAC...")
             self.agente = AgenteSac(self.config, total_timesteps)
+            
+            # Crear directorios de salida (NUEVO)
+            log.debug("Creando estructura de directorios...")
+            self._crear_directorios()
+            
             log.info("Entrenamiento inicializado correctamente.")
 
         except Exception as e:
@@ -111,7 +128,52 @@ class Entrenamiento:
             raise
         except Exception as e:
             log.error(f"Error inesperado al cargar datos del dataset {data_id}: {e}")
-            log.error("Detalles del error:", exc_info=True)
+            raise
+
+    def _cargar_scaler(self, data_id: str) -> Optional[StandardScaler]:
+        """Carga el scaler desde el dataset, si existe."""
+        scaler_path: str = f"datasets/{data_id}/scaler.pkl"
+        
+        try:
+            log.debug(f"Intentando cargar scaler desde: {scaler_path}")
+            
+            if not os.path.exists(scaler_path):
+                log.warning(f"No se encontró scaler en {scaler_path}. Se usarán observaciones sin normalizar.")
+                return None
+            
+            scaler: StandardScaler = joblib.load(scaler_path)
+            log.info(f"✅ Scaler cargado exitosamente desde: {scaler_path}")
+            log.debug(f"Características del scaler: {scaler.feature_names_in_ if hasattr(scaler, 'feature_names_in_') else 'No disponible'}")
+            
+            return scaler
+            
+        except Exception as e:
+            log.error(f"Error al cargar scaler desde {scaler_path}: {e}")
+            log.warning("Se continuará sin normalización")
+            return None
+
+    def _crear_directorios(self) -> None:
+        """Crea la estructura de directorios necesaria para guardar los resultados."""
+        try:
+            base_dir: str = self.config.Output.base_dir
+            log.debug(f"Creando estructura de directorios en: {base_dir}")
+            
+            # Crear directorios principales
+            directorios: list[str] = [
+                base_dir,
+                f"{base_dir}/modelos",
+                f"{base_dir}/tensorboard",
+                f"{base_dir}/evaluacion",
+            ]
+            
+            for directorio in directorios:
+                os.makedirs(directorio, exist_ok=True)
+                log.debug(f"Directorio creado/verificado: {directorio}")
+            
+            log.info("Estructura de directorios creada exitosamente")
+            
+        except Exception as e:
+            log.error(f"Error al crear directorios: {e}")
             raise
 
     def entrenar(self) -> None:
@@ -141,8 +203,17 @@ class Entrenamiento:
                 try:
                     log.info(f"Iniciando evaluación con dataset: {self.data_eval_id}")
                     eval_data = self._cargar_datos(self.data_eval_id)
+                    
+                    # Cargar scaler del dataset de evaluación (NUEVO)
+                    eval_scaler = self._cargar_scaler(self.data_eval_id)
+                    
                     eval_portafolio = Portafolio(self.config)
-                    eval_env = TradingEnv(self.config, eval_data, eval_portafolio)
+                    eval_env = TradingEnv(
+                        self.config, 
+                        eval_data, 
+                        eval_portafolio,
+                        scaler=eval_scaler  # ← NUEVO: Usar scaler del dataset de evaluación
+                    )
 
                     max_steps_eval = len(eval_data) - self.config.entorno.window_size
                     # Ejecutar evaluación (esto guardará los 3 CSVs en Output.base_dir/evaluacion)
@@ -230,7 +301,7 @@ def main() -> None:
     try:
         # Parsear argumentos de línea de comandos
         log.debug("Parseando argumentos de línea de comandos...")
-        args: Namespace = parse_args()
+        args: Namespace = parse_args_training()
         log.debug(f"Argumentos recibidos: {args}")
 
         # Validar argumentos básicos

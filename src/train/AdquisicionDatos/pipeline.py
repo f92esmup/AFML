@@ -8,7 +8,7 @@ import joblib
 import yaml
 import logging
 
-from .config import Config
+from src.train.config import UnifiedConfig
 from .adquisicion import DataDownloader
 from .preprocesamiento import Preprocesamiento
 
@@ -20,7 +20,7 @@ class DataPipeline:
         """ Incializamos todos los objetos necesarios para la obtención de datos """
         log.info("Inicializando DataPipeline...")
         
-        self.config = Config.load_config(args)
+        self.config = UnifiedConfig.load_for_data_acquisition(args)
         log.debug("Configuración cargada.")
 
         # Creamos el objeto DataDownloader
@@ -54,10 +54,12 @@ class DataPipeline:
     def _guardar_datos(self, data: pd.DataFrame, scaler: StandardScaler) -> None:
         """ metodo para guardar los datos y el scaler """
         # Rutas de los archivos
-        root_dir = self.config.output.root
-        data_path = os.path.join(root_dir, self.config.output.data_filename)
-        scaler_path = os.path.join(root_dir, self.config.output.scaler_filename)
-        metadata_path = os.path.join(root_dir, self.config.output.metadata_filename)
+        # Para adquisición de datos, el output tiene estructura OutputDataAcquisitionConfig
+        output_config = self.config.output
+        root_dir = output_config.root  # type: ignore
+        data_path = os.path.join(root_dir, output_config.data_filename)  # type: ignore
+        scaler_path = os.path.join(root_dir, output_config.scaler_filename)  # type: ignore
+        metadata_path = os.path.join(root_dir, output_config.metadata_filename)  # type: ignore
 
         # Creamos las carpetas si no existen
         log.debug(f"Asegurando que el directorio de salida exista: {root_dir}")

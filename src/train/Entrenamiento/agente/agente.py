@@ -12,20 +12,20 @@ from typing import List, Dict, Any, cast
 import numpy as np
 
 if TYPE_CHECKING:
-    from src.Entrenamiento.config import Config
+    from src.train.config.config import UnifiedConfig
 
 # Configurar logger
 log: logging.Logger = logging.getLogger("AFML.agente")
 
 class AgenteSac:
     """ Agente de aprendizaje por refuerzo. """
-    def __init__(self, config: 'Config', total_timesteps: int) -> None:
+    def __init__(self, config: 'UnifiedConfig', total_timesteps: int) -> None:
         """ Inicializa los parámetros del agente SAC. """
         log.info("Inicializando agente SAC...")
         
         try:
             self.model: Optional[SAC] = None
-            self.config: 'Config' = config
+            self.config: 'UnifiedConfig' = config
             
             # Validar parámetros de entrada
             if total_timesteps <= 0:

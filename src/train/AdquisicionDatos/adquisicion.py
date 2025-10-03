@@ -4,7 +4,7 @@ import time
 from datetime import datetime, timedelta
 import logging
 
-from src.AdqusicionDatos.config import Config
+from src.train.config.config import UnifiedConfig
 
 log = logging.getLogger(f"AFML.{__name__}")
 
@@ -22,7 +22,7 @@ INTERVAL_MAP = {
 
 class DataDownloader:
 
-    def __init__(self, client, config: Config) -> None: # No he tipeado estos objetos.
+    def __init__(self, client, config: UnifiedConfig) -> None: # No he tipeado estos objetos.
         self.client = client
         # Asignamos los valores desde el objeto de configuración
         self.symbol = config.data_downloader.symbol

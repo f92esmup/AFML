@@ -7,9 +7,9 @@ operación abierta.
 """
 import pandas as pd
 import logging
-from src.Entrenamiento.config import Config 
+from src.train.config.config import UnifiedConfig
 from typing import Tuple, Optional, Dict, Any
-from src.Entrenamiento.entorno.types import OperationInfo, PortafolioSnapshot
+from src.train.Entrenamiento.entorno.types import OperationInfo, PortafolioSnapshot
 
 # Configurar logger
 log: logging.Logger = logging.getLogger("AFML.portafolio")
@@ -184,7 +184,7 @@ class Posicion:
             raise
     
 class Portafolio:
-    def __init__(self, config: Config) -> None:
+    def __init__(self, config: UnifiedConfig) -> None:
         """Inicializa el portafolio con validación completa."""
         
         try:
