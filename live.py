@@ -2,7 +2,7 @@
 
 import logging
 
-from src.AdqusicionDatos.utils.logger import setup_logger
+from src.utils.logger import setup_logger
 
 from src.produccion import ProductionConfig, parse_args
 

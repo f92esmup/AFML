@@ -1,0 +1,126 @@
+# =============================================================================
+# .dockerignore para AFML Training Container
+# Excluye archivos innecesarios para optimizar el contexto de build
+# =============================================================================
+
+# Directorios de Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Entornos virtuales
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+.conda/
+
+# IDEs y editores
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Control de versiones
+.git/
+.gitignore
+.gitattributes
+.github/
+
+# Archivos de testing
+.pytest_cache/
+.coverage
+.nyc_output
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+.hypothesis/
+
+# Documentación
+docs/
+*.md
+!README.md
+
+# Logs y outputs de entrenamiento (evitar copiar entrenamientos previos)
+logs/
+entrenamientos/
+*.log
+*.out
+
+# Datos temporales y cache
+datasets/
+data/temp/
+*.tmp
+*.cache
+
+# Archivos de configuración local
+.env.local
+.env.example
+config/local_*
+
+# Archivos del sistema
+*.pid
+*.seed
+*.pid.lock
+
+# Jupyter notebooks
+.ipynb_checkpoints/
+*.ipynb
+
+# Codacy y análisis de código
+.codacy/
+
+# Archivos de backup
+*.bak
+*.backup
+*~
+
+# Archivos comprimidos (excepto si son necesarios)
+*.tar.gz
+*.zip
+*.rar
+
+# Archivos de monitoreo
+.pytest_cache/
+.mypy_cache/
+
+# Variables de entorno sensibles
+.env
+*.key
+*.pem
+credentials.json
+
+# Archivos específicos del proyecto que no son necesarios en container
+TASKS.md
+live.py
+
+# Ignorar Dockerfile para evitar recursión
+Dockerfile*
+docker-compose*
+.dockerignore
