@@ -111,7 +111,6 @@ config/local_*
 .mypy_cache/
 
 # Variables de entorno sensibles
-.env
 *.key
 *.pem
 credentials.json
