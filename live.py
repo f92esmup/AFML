@@ -10,6 +10,7 @@ import sys
 from datetime import datetime
 from typing import Dict, Any
 from binance import Client
+from dotenv import load_dotenv
 
 from src.utils.logger import setup_logger
 from src.produccion.config.cli import parse_args
@@ -21,6 +22,9 @@ from src.produccion.agente_produccion import AgenteProduccion
 from src.produccion.control_riesgo import ControlRiesgo
 from src.produccion.Registro import RegistroProduccion
 from src.train.Entrenamiento.entorno.info_builder import build_info_dict
+
+# Cargar variables de entorno desde .env
+load_dotenv()
 
 # Configurar logger
 setup_logger()

@@ -6,6 +6,7 @@ entrenamientos/
 .pytest_cache/
 .vscode/
 .env/
+.env
 
 #Ignore vscode AI rules
 .github/instructions/codacy.instructions.md
