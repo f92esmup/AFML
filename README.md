@@ -8,7 +8,7 @@
 > [!WARNING]
 > **Advertencia de Riesgo:** Este proyecto interactúa con mercados financieros y realiza operaciones automatizadas en criptomonedas a través de la API de Binance. El uso de este software puede conllevar pérdidas financieras. Asegúrate de comprender los riesgos asociados y utiliza el sistema bajo tu propia responsabilidad. No se ofrece garantía de resultados ni soporte financiero.
 
-## 🚀 Uso Rápido
+## Uso Rápido
 
 ### Entrenamiento Unificado (Walk-Forward)
 
@@ -78,7 +78,7 @@ El flujo de trabajo será un aspecto clave. Para evitar delegar nuevamente tarea
 
 ---
 
-## 🐳 Uso con Docker
+## Uso con Docker
 
 El proyecto también puede ejecutarse dentro de un contenedor Docker. Esto asegura un entorno controlado y reproducible, eliminando problemas de dependencias o configuraciones locales.
 
