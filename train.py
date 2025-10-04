@@ -341,6 +341,10 @@ class Entrenamiento:
                 "train_id": os.path.basename(self.config.Output.base_dir),
             }
 
+            # Convertir train_freq de tupla a lista (compatible con yaml.safe_load)
+            if "SACmodel" in config_dict and "train_freq" in config_dict["SACmodel"]:
+                config_dict["SACmodel"]["train_freq"] = list(config_dict["SACmodel"]["train_freq"])
+
             # Guardar en archivo YAML
             with open(metadata_path, "w", encoding="utf-8") as f:
                 yaml.dump(config_dict, f, sort_keys=False, default_flow_style=False, allow_unicode=True)

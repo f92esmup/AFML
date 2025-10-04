@@ -157,6 +157,9 @@ def simple_gym_env():
             truncated = False
             
             # Info básico
+            # Manejar action como escalar o array
+            posicion_value = action[0] if hasattr(action, '__len__') and len(action) > 0 else action
+            
             info = {
                 'entorno': {
                     'episodio': 0,
@@ -166,7 +169,7 @@ def simple_gym_env():
                 },
                 'portafolio': {
                     'equity': 10000 + np.random.randn() * 100,
-                    'posicion': action[0]
+                    'posicion': posicion_value
                 },
                 'operacion': {
                     'accion': 'hold',

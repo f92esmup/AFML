@@ -1,41 +1,16 @@
 """Configuración de la aplicación de producción"""
 
 from pydantic import BaseModel, Field
-from typing import List
+from typing import List, Optional
 import argparse
 import yaml
 import logging
+import joblib
+from sklearn.preprocessing import StandardScaler
+import os
 
 # Cargamos el logging
-log = logging.getLogger("config_logger")
-
-##########################################################################################################
-# Clases que descomponen los parámetros de configuración.
-##########################################################################################################
-
-
-class MarketStats(BaseModel):
-    """Estadísticas de normalización del mercado."""
-
-    count: int
-    mean: List[List[float]]
-    var: List[List[float]]
-
-
-class PortfolioStats(BaseModel):
-    """Estadísticas de normalización del portafolio."""
-
-    count: int
-    mean: List[float]
-    var: List[float]
-
-
-class ObsNorm(BaseModel):
-    """Parámetros de normalización de las observaciones."""
-
-    _clip_obs: float
-    market: MarketStats
-    portfolio: PortfolioStats
+log = logging.getLogger("AFML.config")
 
 
 ##########################################################################################################
@@ -44,6 +19,8 @@ class ObsNorm(BaseModel):
 
 
 class ProductionConfig(BaseModel):
+    model_config = {"arbitrary_types_allowed": True}
+    
     apalancamiento: float = Field(
         ..., ge=1, description="Nivel de apalancamiento del portafolio"
     )
@@ -51,9 +28,32 @@ class ProductionConfig(BaseModel):
     simbolo: str = Field(..., description="Símbolo del activo a analizar")
     train_id: str = Field(..., description="Identificador del entrenamiento")
     model_path: str = Field(..., description="Ruta al modelo entrenado")
-    obs_norm: ObsNorm = Field(
-        ..., description="Parámetros de normalización de observaciones"
-    )
+    scaler_path: str = Field(..., description="Ruta al scaler de entrenamiento")
+    is_live: bool = Field(..., description="Modo de ejecución: True=Live, False=Testnet")
+    
+    # Parámetros del entorno (necesarios para observación y control de riesgo)
+    window_size: int = Field(..., description="Tamaño de la ventana de observación")
+    max_drawdown_permitido: float = Field(..., description="Drawdown máximo permitido")
+    umbral_mantener_posicion: float = Field(..., description="Umbral para mantener posición")
+    normalizar_portfolio: bool = Field(..., description="Si normalizar observación de portfolio")
+    
+    # Parámetros del portfolio
+    capital_inicial: float = Field(..., description="Capital inicial del portfolio")
+    comision: float = Field(..., description="Comisión por operación")
+    slippage: float = Field(..., description="Slippage estimado")
+    
+    # Parámetros de indicadores (necesarios para DataProvider)
+    sma_short: int = Field(..., description="Período de SMA corto")
+    sma_long: int = Field(..., description="Período de SMA largo")
+    rsi_length: int = Field(..., description="Período de RSI")
+    macd_fast: int = Field(..., description="Período rápido de MACD")
+    macd_slow: int = Field(..., description="Período lento de MACD")
+    macd_signal: int = Field(..., description="Período de señal de MACD")
+    bbands_length: int = Field(..., description="Período de Bollinger Bands")
+    bbands_std: float = Field(..., description="Desviación estándar de Bollinger Bands")
+    
+    # Scaler cargado (no se serializa en YAML)
+    scaler: Optional[StandardScaler] = Field(default=None, exclude=True)
 
     @classmethod
     def load_config(cls, args: argparse.Namespace) -> "ProductionConfig":
@@ -65,26 +65,78 @@ class ProductionConfig(BaseModel):
             with open(config_path, "r", encoding="utf-8") as file:
                 yaml_data = yaml.safe_load(file)
         except FileNotFoundError:
+            log.error(f"No se encontró el archivo de configuración: {config_path}")
             raise FileNotFoundError(
-                f"No se encontró el archivo de configuración: {args.config.file}"
+                f"No se encontró el archivo de configuración: {config_path}"
             )
         except yaml.YAMLError as e:
+            log.error(f"Error al analizar el archivo YAML: {e}")
             raise ValueError(f"Error al analizar el archivo YAML: {e}")
         except Exception as e:
+            log.error(f"Error inesperado al cargar la configuración: {e}")
             raise RuntimeError(f"Error inesperado al cargar la configuración: {e}")
 
         # Seleccionamos solo los parámetros relevantes para Producción.
         try:
-            config = {
-                "apalancamiento": yaml_data.get("portafolio").get("apalancamiento"),
-                "intervalo": yaml_data.get("Datasets").get("intervalo"),
-                "simbolo": yaml_data.get("Datasets").get("symbol"),
+            config_dict = {
+                # Datos básicos
+                "apalancamiento": yaml_data["portafolio"]["apalancamiento"],
+                "intervalo": yaml_data["data_downloader"]["interval"],
+                "simbolo": yaml_data["data_downloader"]["symbol"],
                 "train_id": args.train_id,
-                "model_path": yaml_data.get("Output").get("model_path"),
-                "obs_norm": yaml_data.get("obs_norm"),
+                "model_path": yaml_data["Output"]["model_path"],
+                "scaler_path": yaml_data["Output"]["scaler_train_path"],
+                "is_live": args.live,
+                
+                # Entorno
+                "window_size": yaml_data["entorno"]["window_size"],
+                "max_drawdown_permitido": yaml_data["entorno"]["max_drawdown_permitido"],
+                "umbral_mantener_posicion": yaml_data["entorno"]["umbral_mantener_posicion"],
+                "normalizar_portfolio": yaml_data["entorno"]["normalizar_portfolio"],
+                
+                # Portfolio
+                "capital_inicial": yaml_data["portafolio"]["capital_inicial"],
+                "comision": yaml_data["portafolio"]["comision"],
+                "slippage": yaml_data["portafolio"]["slippage"],
+                
+                # Indicadores
+                "sma_short": yaml_data["preprocesamiento"]["indicadores"]["SMA_short"],
+                "sma_long": yaml_data["preprocesamiento"]["indicadores"]["SMA_long"],
+                "rsi_length": yaml_data["preprocesamiento"]["indicadores"]["RSI_length"],
+                "macd_fast": yaml_data["preprocesamiento"]["indicadores"]["MACD_fast"],
+                "macd_slow": yaml_data["preprocesamiento"]["indicadores"]["MACD_slow"],
+                "macd_signal": yaml_data["preprocesamiento"]["indicadores"]["MACD_signal"],
+                "bbands_length": yaml_data["preprocesamiento"]["indicadores"]["BB_length"],
+                "bbands_std": yaml_data["preprocesamiento"]["indicadores"]["BB_std"],
             }
-        except AttributeError as e:
+        except (KeyError, AttributeError) as e:
             log.error(f"Error al extraer parámetros de configuración: {e}")
+            raise ValueError(f"Parámetro faltante en configuración: {e}")
+
+        # Crear instancia de configuración
+        config_instance = cls(**config_dict)
+        
+        # Cargar el scaler
+        log.info(f"Cargando scaler desde: {config_instance.scaler_path}")
+        try:
+            if not os.path.exists(config_instance.scaler_path):
+                raise FileNotFoundError(f"Scaler no encontrado: {config_instance.scaler_path}")
+            
+            config_instance.scaler = joblib.load(config_instance.scaler_path)
+            log.info("✅ Scaler cargado exitosamente")
+            
+            # Validar que el scaler tenga los atributos necesarios
+            if not hasattr(config_instance.scaler, 'mean_') or not hasattr(config_instance.scaler, 'scale_'):
+                raise ValueError("El scaler cargado no es válido (falta mean_ o scale_)")
+                
+        except Exception as e:
+            log.error(f"Error al cargar el scaler: {e}")
             raise
 
-        return cls(**config)
+        log.info(f"✅ Configuración cargada exitosamente")
+        log.info(f"   Símbolo: {config_instance.simbolo}")
+        log.info(f"   Intervalo: {config_instance.intervalo}")
+        log.info(f"   Modo: {'LIVE' if config_instance.is_live else 'TESTNET'}")
+        log.info(f"   Window size: {config_instance.window_size}")
+        
+        return config_instance

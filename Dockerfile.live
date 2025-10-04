@@ -1,5 +1,5 @@
-# Dockerfile simplificado para entrenamiento AFML (Una sola etapa)
-# Para PyTorch + CUDA + Trading Environment
+# Dockerfile para el modo LIVE/TESTNET de AFML Trading System
+# Ejecuta el sistema de trading en producción con conexión a Binance
 
 FROM continuumio/miniconda3:24.1.2-0
 
@@ -34,30 +34,29 @@ RUN conda env create -f environment.yml && \
 # Copiar código fuente del proyecto
 COPY . .
 
-# Crear directorios necesarios para outputs
-RUN mkdir -p /app/entrenamientos /app/logs /app/data
+# Crear directorios necesarios para outputs y logs
+RUN mkdir -p /app/logs /app/registros_produccion
 
 # Configurar PYTHONPATH para imports relativos
 ENV PYTHONPATH="/app"
 
-# Activar ambiente conda y verificar instalación
+# Activar ambiente conda
 RUN echo "conda activate $CONDA_ENV_NAME" >> ~/.bashrc
 SHELL ["/bin/bash", "--login", "-c"]
 
-# Punto de entrada para activar conda y ejecutar el script de entrenamiento
-ENTRYPOINT ["conda", "run", "-n", "AFML", "python", "/app/train.py"]
+# Punto de entrada para activar conda y ejecutar el script de producción
+# Nota: Los argumentos se pasan en tiempo de ejecución
+ENTRYPOINT ["conda", "run", "-n", "AFML", "python", "/app/live.py"]
 
-# CMD por defecto (puede ser sobrescrito)
+# CMD por defecto - muestra ayuda
 CMD ["--help"]
 
 # Metadata
 LABEL maintainer="pedro"
-LABEL description="AFML Trading System Training Container"
+LABEL description="AFML Trading System Live/Testnet Container"
 LABEL version="1.0"
+LABEL mode="production"
 
-# Exponer puertos si es necesario para monitoring
-EXPOSE 8888
-
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD conda run -n $CONDA_ENV_NAME python -c "import torch; import pandas; print('Container is healthy')" || exit 1
+# Health check - verifica que el ambiente Python esté funcionando
+HEALTHCHECK --interval=60s --timeout=10s --start-period=5s --retries=3 \
+    CMD conda run -n $CONDA_ENV_NAME python -c "import asyncio; import binance; import stable_baselines3; print('Container is healthy')" || exit 1
