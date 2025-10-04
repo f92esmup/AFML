@@ -25,7 +25,7 @@ from src.train.AdquisicionDatos.preprocesamiento import Preprocesamiento
 from src.train.config import parse_args_training
 from src.train.Entrenamiento.entorno import TradingEnv, Portafolio
 from src.train.Entrenamiento.agente import AgenteSac
-from src.train.Entrenamiento.utils.utils import calcular_steps
+from src.utils.utils import calcular_steps
 
 if TYPE_CHECKING:
     from src.train.config import UnifiedConfig
