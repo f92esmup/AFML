@@ -2,7 +2,7 @@
 
 from binance.client import Client
 from binance.exceptions import BinanceAPIException
-from typing import Dict, Any
+from typing import Dict, Any, Optional, List
 import logging
 
 from src.produccion.config.config import ProductionConfig
@@ -30,6 +30,12 @@ class BinanceConnector:
         self._equity: float = 0.0
         self._pnl_total: float = 0.0
         self._posicion_abierta: bool = False
+        
+        # Información de la posición activa
+        self._posicion_info: Optional[Dict[str, Any]] = None
+        
+        # Tracking de equity máximo para cálculo de drawdown
+        self._max_equity: float = 0.0
 
         # Configurar apalancamiento al inicializar
         self._setup_leverage()
@@ -114,17 +120,28 @@ class BinanceConnector:
             self._balance = float(account_info["totalWalletBalance"])
             self._equity = float(account_info["totalMarginBalance"])
             self._pnl_total = float(account_info["totalUnrealizedProfit"])
+            
+            # Actualizar max equity para cálculo de drawdown
+            if self._equity > self._max_equity:
+                self._max_equity = self._equity
 
-            # Verificar si hay posiciones abiertas
+            # Verificar si hay posiciones abiertas y guardar información
             positions = self._client.futures_position_information(
                 symbol=self._config.simbolo
             )
-            self._posicion_abierta = any(
-                float(pos["positionAmt"]) != 0 for pos in positions
-            )
+            
+            self._posicion_abierta = False
+            self._posicion_info = None
+            
+            for pos in positions:
+                position_amt = float(pos["positionAmt"])
+                if position_amt != 0:
+                    self._posicion_abierta = True
+                    self._posicion_info = pos
+                    break
 
             log.debug(
-                f"Información de cuenta actualizada - Balance: {self._balance}, Equity: {self._equity}"
+                f"Información de cuenta actualizada - Balance: {self._balance}, Equity: {self._equity}, Posición: {self._posicion_abierta}"
             )
             return True
 
@@ -162,3 +179,213 @@ class BinanceConnector:
     def apalancamiento(self) -> float:
         """Nivel de apalancamiento configurado"""
         return self._config.apalancamiento
+    
+    def get_position_info(self) -> Dict[str, Any]:
+        """
+        Obtiene información detallada de la posición actual.
+        
+        Returns:
+            Diccionario con información del portfolio compatible con info_builder:
+            {
+                'balance': float,
+                'equity': float,
+                'max_drawdown': float,
+                'pnl_total': float,
+                'posicion_abierta': bool,
+                'tipo_posicion_activa': str o None,
+                'precio_entrada_activa': float o None,
+                'cantidad_activa': float o None,
+                'pnl_no_realizado': float,
+            }
+        """
+        try:
+            # Actualizar información primero
+            self.get_account_info()
+            
+            # Calcular drawdown
+            drawdown = 0.0
+            if self._max_equity > 0:
+                drawdown = (self._max_equity - self._equity) / self._max_equity
+            
+            info = {
+                'balance': self._balance,
+                'equity': self._equity,
+                'max_drawdown': drawdown,
+                'pnl_total': self._pnl_total,
+                'posicion_abierta': self._posicion_abierta,
+                'pnl_no_realizado': self._pnl_total,
+            }
+            
+            # Añadir información de posición activa si existe
+            if self._posicion_info is not None and self._posicion_abierta:
+                info.update({
+                    'tipo_posicion_activa': 'LONG' if float(self._posicion_info.get('positionAmt', 0)) > 0 else 'SHORT',
+                    'precio_entrada_activa': float(self._posicion_info.get('entryPrice', 0)),
+                    'cantidad_activa': abs(float(self._posicion_info.get('positionAmt', 0))),
+                })
+            else:
+                info.update({
+                    'tipo_posicion_activa': None,
+                    'precio_entrada_activa': None,
+                    'cantidad_activa': None,
+                })
+            
+            return info
+            
+        except Exception as e:
+            log.error(f"Error al obtener información de posición: {e}")
+            # Retornar diccionario con valores por defecto en caso de error
+            return {
+                'balance': 0.0,
+                'equity': 0.0,
+                'max_drawdown': 0.0,
+                'pnl_total': 0.0,
+                'posicion_abierta': False,
+                'tipo_posicion_activa': None,
+                'precio_entrada_activa': None,
+                'cantidad_activa': None,
+                'pnl_no_realizado': 0.0,
+            }
+    
+    def close_all_positions(self, emergency: bool = False) -> Dict[str, Any]:
+        """
+        Cierra todas las posiciones abiertas y cancela órdenes pendientes.
+        CRÍTICO para el protocolo de emergencia.
+        
+        Args:
+            emergency: Si es True, indica que es un cierre de emergencia
+            
+        Returns:
+            Diccionario con el resultado:
+            {
+                'posiciones_cerradas': int,
+                'ordenes_canceladas': int,
+                'balance_final': float,
+                'equity_final': float,
+                'errores': List[str]
+            }
+        """
+        resultado = {
+            'posiciones_cerradas': 0,
+            'ordenes_canceladas': 0,
+            'balance_final': 0.0,
+            'equity_final': 0.0,
+            'errores': []
+        }
+        
+        try:
+            if emergency:
+                log.critical("🚨 INICIANDO CIERRE DE EMERGENCIA DE TODAS LAS POSICIONES")
+            else:
+                log.warning("Cerrando todas las posiciones...")
+            
+            # 1. Cancelar todas las órdenes pendientes
+            try:
+                self._client.futures_cancel_all_open_orders(symbol=self._config.simbolo)
+                resultado['ordenes_canceladas'] = 1  # No sabemos el número exacto
+                log.info("✅ Órdenes pendientes canceladas")
+            except BinanceAPIException as e:
+                error_msg = f"Error al cancelar órdenes: {e}"
+                log.error(error_msg)
+                resultado['errores'].append(error_msg)
+            
+            # 2. Obtener posiciones actuales
+            try:
+                positions = self._client.futures_position_information(symbol=self._config.simbolo)
+            except BinanceAPIException as e:
+                error_msg = f"Error al obtener posiciones: {e}"
+                log.error(error_msg)
+                resultado['errores'].append(error_msg)
+                return resultado
+            
+            # 3. Cerrar cada posición abierta
+            for pos in positions:
+                position_amt = float(pos['positionAmt'])
+                
+                if position_amt != 0:
+                    side = 'SELL' if position_amt > 0 else 'BUY'  # Definir antes del try
+                    try:
+                        # Determinar el lado de la orden de cierre
+                        quantity = abs(position_amt)
+                        
+                        log.info(f"Cerrando posición {side}: cantidad={quantity}")
+                        
+                        # Crear orden de cierre (reduceOnly=True)
+                        order = self.create_order(
+                            symbol=self._config.simbolo,
+                            side=side,
+                            quantity=quantity,
+                            order_type='MARKET',
+                            reduce_only=True
+                        )
+                        
+                        resultado['posiciones_cerradas'] += 1
+                        log.info(f"✅ Posición cerrada exitosamente: {order['orderId']}")
+                        
+                    except BinanceAPIException as e:
+                        error_msg = f"Error al cerrar posición {side}: {e}"
+                        log.error(error_msg)
+                        resultado['errores'].append(error_msg)
+            
+            # 4. Actualizar información final
+            self.get_account_info()
+            resultado['balance_final'] = self._balance
+            resultado['equity_final'] = self._equity
+            
+            if emergency:
+                log.critical(f"🚨 CIERRE DE EMERGENCIA COMPLETADO")
+                log.critical(f"   Posiciones cerradas: {resultado['posiciones_cerradas']}")
+                log.critical(f"   Balance final: {resultado['balance_final']}")
+                log.critical(f"   Equity final: {resultado['equity_final']}")
+            else:
+                log.info(f"✅ Cierre de posiciones completado")
+            
+            return resultado
+            
+        except Exception as e:
+            error_msg = f"Error crítico en close_all_positions: {e}"
+            log.error(error_msg)
+            resultado['errores'].append(error_msg)
+            return resultado
+    
+    def calculate_position_size(
+        self, 
+        action: float, 
+        precio_actual: float,
+        porcentaje_capital: float = 0.95
+    ) -> float:
+        """
+        Calcula el tamaño de la posición basado en la acción del agente.
+        
+        Args:
+            action: Acción del agente (valor entre -1 y 1)
+            precio_actual: Precio actual del activo
+            porcentaje_capital: Porcentaje del balance a usar (default: 95%)
+            
+        Returns:
+            Cantidad a operar (en unidades del activo)
+        """
+        try:
+            # El valor absoluto de la acción indica la intensidad
+            intensidad = abs(action)
+            
+            # Capital disponible para operar
+            capital_disponible = self._balance * porcentaje_capital * intensidad
+            
+            # Considerando el apalancamiento
+            capital_apalancado = capital_disponible * self._config.apalancamiento
+            
+            # Cantidad en unidades del activo
+            cantidad = capital_apalancado / precio_actual
+            
+            # Redondear según las especificaciones del símbolo
+            # (En producción real, deberías obtener esto de exchange_info)
+            cantidad = round(cantidad, 3)  # Ajustar según el símbolo
+            
+            log.debug(f"Tamaño de posición calculado: {cantidad} (intensidad: {intensidad:.2f})")
+            
+            return cantidad
+            
+        except Exception as e:
+            log.error(f"Error al calcular tamaño de posición: {e}")
+            return 0.0
