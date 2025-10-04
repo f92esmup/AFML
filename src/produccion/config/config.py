@@ -19,6 +19,8 @@ log = logging.getLogger("AFML.config")
 
 
 class ProductionConfig(BaseModel):
+    model_config = {"arbitrary_types_allowed": True}
+    
     apalancamiento: float = Field(
         ..., ge=1, description="Nivel de apalancamiento del portafolio"
     )

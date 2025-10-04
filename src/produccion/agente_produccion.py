@@ -4,7 +4,7 @@ Encapsula la carga del modelo entrenado, predicción determinística e interpret
 """
 
 import logging
-from typing import Dict, Any, Tuple
+from typing import Dict, Any, Tuple, Optional
 import numpy as np
 from stable_baselines3 import SAC
 
@@ -65,7 +65,7 @@ class AgenteProduccion:
         self, 
         accion: float, 
         tiene_posicion_abierta: bool,
-        tipo_posicion_activa: str = None
+        tipo_posicion_activa: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Interpreta la acción del agente y determina la operación a realizar.
@@ -118,10 +118,10 @@ class AgenteProduccion:
                 log.info(f"Interpretar acción → AUMENTAR LONG (intensidad: {intensidad:.2f})")
                 
             elif tipo_posicion_activa == 'SHORT':
-                # Tenemos SHORT, cerrar y abrir LONG
-                resultado['operacion'] = 'cerrar_short_abrir_long'
+                # Tenemos SHORT, solo cerrar (NO reabrir - una acción por paso)
+                resultado['operacion'] = 'cerrar_short'
                 resultado['debe_ejecutar'] = True
-                log.info(f"Interpretar acción → CERRAR SHORT + ABRIR LONG (intensidad: {intensidad:.2f})")
+                log.info(f"Interpretar acción → CERRAR SHORT (intensidad: {intensidad:.2f})")
         
         # CASO 3: Acción es SHORT (vender)
         elif accion < -self.umbral_mantener:
@@ -140,9 +140,9 @@ class AgenteProduccion:
                 log.info(f"Interpretar acción → AUMENTAR SHORT (intensidad: {intensidad:.2f})")
                 
             elif tipo_posicion_activa == 'LONG':
-                # Tenemos LONG, cerrar y abrir SHORT
-                resultado['operacion'] = 'cerrar_long_abrir_short'
+                # Tenemos LONG, solo cerrar (NO reabrir - una acción por paso)
+                resultado['operacion'] = 'cerrar_long'
                 resultado['debe_ejecutar'] = True
-                log.info(f"Interpretar acción → CERRAR LONG + ABRIR SHORT (intensidad: {intensidad:.2f})")
+                log.info(f"Interpretar acción → CERRAR LONG (intensidad: {intensidad:.2f})")
         
         return resultado

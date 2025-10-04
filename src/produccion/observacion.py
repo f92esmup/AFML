@@ -66,11 +66,21 @@ class ObservacionBuilder:
             
             ventana_reciente = ventana_df.tail(self.window_size).copy()
             
-            # 2. Eliminar columna timestamp si existe
+            # 2. VALIDAR que no haya NaN en la ventana de observación
+            # Si hay NaN, significa que los indicadores aún no están completos
+            if ventana_reciente.isna().any().any():
+                nan_cols = ventana_reciente.columns[ventana_reciente.isna().any()].tolist()
+                raise ValueError(
+                    f"Ventana de observación contiene NaN en columnas: {nan_cols}. "
+                    f"Los indicadores aún no están completamente calculados. "
+                    f"Se debe activar protocolo de emergencia."
+                )
+            
+            # 3. Eliminar columna timestamp si existe
             if 'timestamp' in ventana_reciente.columns:
                 ventana_reciente = ventana_reciente.drop(columns=['timestamp'])
             
-            # 3. Normalizar datos de mercado con scaler
+            # 4. Normalizar datos de mercado con scaler
             try:
                 market_data = self.scaler.transform(ventana_reciente)
                 market_obs = market_data.astype(np.float32)
@@ -81,12 +91,12 @@ class ObservacionBuilder:
                 log.error(f"Error al normalizar datos de mercado: {e}")
                 raise
             
-            # 4. Construir portfolio observation
+            # 5. Construir portfolio observation
             equity = binance_state.get('equity', 0.0)
             pnl_no_realizado = binance_state.get('pnl_no_realizado', 0.0)
             posicion_abierta = 1.0 if binance_state.get('posicion_abierta', False) else 0.0
             
-            # 5. Normalizar portfolio si está configurado
+            # 6. Normalizar portfolio si está configurado
             if self.normalizar_portfolio:
                 # Normalización estática (igual que en entrenamiento)
                 equity_norm = equity / self.equity_scale

@@ -164,8 +164,36 @@ async def main() -> None:
                 binance_state = binance.get_position_info()
                 obs = observacion_builder.construir_observacion(ventana, binance_state)
                 log.debug("✅ Observación construida")
+                
+            except ValueError as e:
+                # ValueError específico de NaN en ventana u otros problemas críticos
+                error_msg = str(e)
+                if "NaN" in error_msg or "ventana" in error_msg.lower():
+                    log.critical(f"🚨 ERROR CRÍTICO en observación: {e}")
+                    log.critical("Ventana de observación inválida - Activando protocolo de emergencia")
+                    
+                    resultado_emergencia = control_riesgo.activar_protocolo_emergencia(
+                        f"Observación inválida: {e}"
+                    )
+                    
+                    # Registrar emergencia
+                    registro.registrar_emergencia(
+                        razon="Ventana de observación con NaN",
+                        balance_final=resultado_emergencia['balance_final'],
+                        equity_final=resultado_emergencia['equity_final'],
+                        posiciones_cerradas=resultado_emergencia['posiciones_cerradas'],
+                        detalles=error_msg
+                    )
+                    
+                    log.critical("Sistema detenido por ventana inválida")
+                    break
+                else:
+                    # Otro tipo de ValueError, continuar
+                    log.error(f"Error de validación al construir observación: {e}")
+                    continue
+                    
             except Exception as e:
-                log.error(f"Error al construir observación: {e}")
+                log.error(f"Error inesperado al construir observación: {e}")
                 continue
             
             # ----------------------------------------------------------------

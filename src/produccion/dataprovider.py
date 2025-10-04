@@ -7,6 +7,7 @@ y calcula indicadores técnicos en cada nueva vela.
 import asyncio
 import logging
 import pandas as pd
+import pandas_ta as ta  # Importar para extender DataFrame con .ta
 import numpy as np
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, AsyncGenerator
@@ -200,12 +201,11 @@ class DataProvider:
                 append=True
             )
             
-            # Eliminar filas con NaN (resultado del cálculo de indicadores)
-            filas_antes = len(df_copy)
-            df_copy.dropna(inplace=True)
-            filas_despues = len(df_copy)
+            # NO eliminamos filas con NaN aquí - se mantienen en ventana_total
+            # El ObservacionBuilder tomará las últimas window_size filas
+            # y validará que no tengan NaN (activando protocolo emergencia si las hay)
             
-            log.debug(f"Indicadores calculados. Filas eliminadas (NaN): {filas_antes - filas_despues}")
+            log.debug(f"Indicadores calculados para {len(df_copy)} filas")
             log.debug(f"Columnas finales: {list(df_copy.columns)}")
             
             return df_copy

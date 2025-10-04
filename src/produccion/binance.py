@@ -50,8 +50,9 @@ class BinanceConnector:
                 f"Apalancamiento configurado a {self._config.apalancamiento}x para {self._config.simbolo}"
             )
         except BinanceAPIException as e:
+            # Solo loguear el error, no re-lanzar
+            # El apalancamiento puede estar ya configurado desde otra sesión
             log.error(f"Error al configurar apalancamiento: {e}")
-            raise e
 
     def create_order(
         self,
@@ -62,7 +63,7 @@ class BinanceConnector:
         order_type: str = "MARKET",
         reduce_only: bool = False,
         time_in_force: str = "GTC",
-    ) -> Dict[str, Any]:
+    ) -> Optional[Dict[str, Any]]:
         """
         Crea una orden genérica para Futures USDT-M con configuración one-way
 
@@ -103,7 +104,8 @@ class BinanceConnector:
 
         except BinanceAPIException as e:
             log.error(f"Error al crear la orden: {e}")
-            raise e
+            # No re-lanzar, retornar None para que el llamador maneje el error
+            return None
 
     def get_account_info(self) -> bool:
         """
@@ -319,8 +321,13 @@ class BinanceConnector:
                             reduce_only=True
                         )
                         
-                        resultado['posiciones_cerradas'] += 1
-                        log.info(f"✅ Posición cerrada exitosamente: {order['orderId']}")
+                        if order is not None:
+                            resultado['posiciones_cerradas'] += 1
+                            log.info(f"✅ Posición cerrada exitosamente: {order['orderId']}")
+                        else:
+                            error_msg = f"Error al cerrar posición {side}: create_order retornó None"
+                            log.error(error_msg)
+                            resultado['errores'].append(error_msg)
                         
                     except BinanceAPIException as e:
                         error_msg = f"Error al cerrar posición {side}: {e}"
