@@ -1,0 +1,72 @@
+# Dockerfile simplificado para entrenamiento AFML (Una sola etapa)
+# Para PyTorch + CUDA + Trading Environment
+
+FROM continuumio/miniconda3:24.1.2-0
+
+# Configurar variables de entorno
+ENV CONDA_ENV_NAME=AFML
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PATH=/opt/conda/envs/$CONDA_ENV_NAME/bin:$PATH
+
+# Instalar dependencias del sistema
+RUN apt-get update && apt-get install -y \
+    gcc \
+    g++ \
+    make \
+    wget \
+    curl \
+    git \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
+# Crear usuario no-root para seguridad
+RUN groupadd -r afmluser && useradd -r -g afmluser -m afmluser
+
+# Configurar directorio de trabajo
+WORKDIR /app
+
+# Copiar archivo de configuración del ambiente conda
+COPY environment.yml .
+
+# Crear ambiente conda y limpiar cache
+RUN conda env create -f environment.yml && \
+    conda clean -afy && \
+    conda list -n $CONDA_ENV_NAME
+
+# Cambiar ownership del directorio a afmluser
+RUN chown -R afmluser:afmluser /app
+
+# Cambiar a usuario no-root
+USER afmluser
+
+# Copiar código fuente del proyecto
+COPY --chown=afmluser:afmluser . .
+
+# Crear directorios necesarios para outputs
+RUN mkdir -p /app/entrenamientos /app/logs /app/data
+
+# Configurar PYTHONPATH para imports relativos
+ENV PYTHONPATH="/app"
+
+# Activar ambiente conda y verificar instalación
+RUN echo "conda activate $CONDA_ENV_NAME" >> ~/.bashrc
+SHELL ["/bin/bash", "--login", "-c"]
+
+# Punto de entrada para activar conda y ejecutar el script de entrenamiento
+ENTRYPOINT ["conda", "run", "-n", "AFML", "python", "/app/train.py"]
+
+# CMD por defecto (puede ser sobrescrito)
+CMD ["--help"]
+
+# Metadata
+LABEL maintainer="pedro"
+LABEL description="AFML Trading System Training Container"
+LABEL version="1.0"
+
+# Exponer puertos si es necesario para monitoring
+EXPOSE 8888
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD conda run -n $CONDA_ENV_NAME python -c "import torch; import pandas; print('Container is healthy')" || exit 1

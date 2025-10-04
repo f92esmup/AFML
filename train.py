@@ -15,7 +15,11 @@ from datetime import datetime
 from sklearn.preprocessing import StandardScaler
 from binance.client import Client
 
-from src.train.AdquisicionDatos.utils.logger import setup_logger
+from src.train.AdquisicionDatos.utils.logger import (
+    setup_logger,
+    configure_file_logging,
+    redirect_stdout_to_file,
+)
 from src.train.AdquisicionDatos.adquisicion import DataDownloader
 from src.train.AdquisicionDatos.preprocesamiento import Preprocesamiento
 from src.train.config import parse_args_training
@@ -26,7 +30,8 @@ from src.train.Entrenamiento.utils.utils import calcular_steps
 if TYPE_CHECKING:
     from src.train.config import UnifiedConfig
 
-# Configurar el logger
+# Configurar el logger inicial (a consola, temporalmente)
+# Se reconfigurará a archivo una vez que se conozca el train_id
 setup_logger()
 log: logging.Logger = logging.getLogger("AFML.train")
 
@@ -71,6 +76,18 @@ class Entrenamiento:
             # Crear directorios de salida
             log.debug("Creando estructura de directorios...")
             self._crear_directorios()
+
+            # Reconfigurar logger para guardar en archivo dentro del train_id
+            if self.config.Output is None:
+                raise ValueError("La configuración de salida (Output) no está definida")
+            
+            log_file_path = configure_file_logging(self.config.Output.base_dir)
+            log.info(f"Logger reconfigurado. Logs guardados en: {log_file_path}")
+            
+            # Redirigir stdout/stderr al archivo de log (captura salidas de SB3)
+            redirect_stdout_to_file(log_file_path)
+            log.info("stdout/stderr redirigidos al archivo de log")
+            log.info("=" * 80)
 
             log.info("Inicialización completada correctamente.")
             log.info(f"Periodo de entrenamiento: {self.train_start} a {self.train_end}")

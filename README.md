@@ -63,3 +63,76 @@ Este concepto es sumamente importante. Para impedir que en un momento dado deleg
     * Un documento donde explique las funcionalidades que quiero implementar a cada módulo o función. EL como espero que actúe.
 
 * No voy a usar el modo agente de la IA para escribir código. Puedo pedir piezas de código concretas a la IA pero debo aprender lo que no entienda de ellas. La idea es reducir la cantidad de código que se genera de golpe y que resulta abrumador de analizar. Con este método mantengo un mayor control sobre el resultado y evito comportamientos inesperados.
+
+## 🐳 Uso con Docker
+
+El proyecto también puede ejecutarse dentro de un contenedor Docker. Esto asegura un entorno controlado y reproducible, eliminando problemas de dependencias o configuraciones locales.
+
+### 1. Construir la imagen de Docker
+
+Primero, construimos la imagen de Docker a partir del `Dockerfile.train` incluido en el proyecto:
+
+```bash
+docker build -t afml:latest -f Dockerfile.train .
+```
+
+**Explicación:**
+- `docker build`: Comando para construir una imagen de Docker.
+- `-t afml:latest`: Etiqueta (`tag`) para la imagen. En este caso, la llamamos `afml` con la versión `latest`.
+- `-f Dockerfile.train`: Especifica el archivo Dockerfile a usar. Aquí usamos `Dockerfile.train`.
+- `.`: Contexto de construcción. El punto indica que el contexto es el directorio actual.
+
+### 2. Ejecutar el contenedor
+
+Una vez construida la imagen, podemos ejecutar el entrenamiento dentro del contenedor:
+
+```bash
+docker run --rm -d \
+  --user $(id -u):$(id -g) \
+  -v ./entrenamientos:/app/entrenamientos \
+  afml:latest \
+  --symbol BTCUSDT \
+  --interval 1h \
+  --train-start-date 2023-01-01 \
+  --train-end-date 2025-01-01 \
+  --eval-start-date 2025-01-02 \
+  --eval-end-date 2025-09-01 \
+  --episodios 3
+```
+
+**Explicación:**
+- `docker run`: Comando para ejecutar un contenedor.
+- `--rm`: Elimina automáticamente el contenedor después de que termine su ejecución.
+- `-d`: Ejecuta el contenedor en segundo plano (modo "detached").
+- `--user $(id -u):$(id -g)`: Ejecuta el contenedor con el mismo usuario y grupo que el host. Esto asegura que los archivos creados dentro del contenedor tengan los permisos correctos en el sistema anfitrión.
+- `-v ./entrenamientos:/app/entrenamientos`: Monta el directorio local `./entrenamientos` en el contenedor en la ruta `/app/entrenamientos`. Esto permite que los resultados del entrenamiento sean accesibles desde el host.
+- `afml:latest`: Especifica la imagen de Docker a usar.
+- `--symbol BTCUSDT`: Par de trading.
+- `--interval 1h`: Intervalo de velas.
+- `--train-start-date 2023-01-01`: Fecha de inicio del entrenamiento.
+- `--train-end-date 2025-01-01`: Fecha de fin del entrenamiento.
+- `--eval-start-date 2025-01-02`: Fecha de inicio de la evaluación.
+- `--eval-end-date 2025-09-01`: Fecha de fin de la evaluación.
+- `--episodios 3`: Número de episodios de entrenamiento.
+
+### 3. Verificar los resultados
+
+Los resultados del entrenamiento se guardarán en el directorio `./entrenamientos` en el host. Puedes inspeccionarlos directamente:
+
+```bash
+ls ./entrenamientos
+```
+
+### 4. Monitorear logs
+
+Si necesitas monitorear los logs en tiempo real, puedes usar el siguiente comando:
+
+```bash
+docker logs <container_id>
+```
+
+Reemplaza `<container_id>` con el ID del contenedor, que puedes obtener con:
+
+```bash
+docker ps
+```
