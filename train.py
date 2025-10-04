@@ -15,7 +15,7 @@ from datetime import datetime
 from sklearn.preprocessing import StandardScaler
 from binance.client import Client
 
-from src.train.AdquisicionDatos.utils.logger import (
+from src.utils.logger import (
     setup_logger,
     configure_file_logging,
     redirect_stdout_to_file,

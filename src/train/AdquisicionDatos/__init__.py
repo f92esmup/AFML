@@ -10,7 +10,7 @@ DataDownloader y Preprocesamiento.
 """
 from src.train.AdquisicionDatos.adquisicion import DataDownloader
 from src.train.AdquisicionDatos.preprocesamiento import Preprocesamiento
-from src.train.AdquisicionDatos.utils.logger import setup_logger
+from src.utils.logger import setup_logger
 
 __all__ = [
     "DataDownloader",

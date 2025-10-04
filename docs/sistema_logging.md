@@ -55,7 +55,7 @@ graph TD
 
 ## 🛠️ Componentes
 
-### 1. `logger.py` (src/train/AdquisicionDatos/utils/logger.py)
+### 1. `logger.py` (src/utils/logger.py)
 
 **Funciones principales:**
 
