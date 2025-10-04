@@ -35,7 +35,7 @@ RUN conda env create -f environment.yml && \
 COPY . .
 
 # Crear directorios necesarios para outputs y logs
-RUN mkdir -p /app/logs /app/registros_produccion
+RUN mkdir -p /app/logs /app/registros_produccion /app/entrenamientos
 
 # Configurar PYTHONPATH para imports relativos
 ENV PYTHONPATH="/app"

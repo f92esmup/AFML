@@ -117,7 +117,6 @@ credentials.json
 
 # Archivos específicos del proyecto que no son necesarios en container
 TASKS.md
-live.py
 
 # Ignorar Dockerfile para evitar recursión
 Dockerfile*

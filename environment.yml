@@ -203,6 +203,7 @@ dependencies:
       - pygments==2.19.2
       - pytest==8.4.2
       - python-binance==1.0.29
+      - python-dotenv==1.0.1
       - regex==2025.7.34
       - requests==2.32.5
       - stable-baselines3==2.7.0
