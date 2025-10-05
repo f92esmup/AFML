@@ -5,7 +5,6 @@ compatible con la estructura de info_builder del entrenamiento.
 """
 
 import csv
-import os
 import logging
 from datetime import datetime
 from typing import Dict, Any, Optional
@@ -26,16 +25,21 @@ class RegistroProduccion:
         """
         self.train_id = train_id
         
-        # Crear directorio de producción
-        self.base_dir = f"entrenamientos/{train_id}/produccion"
-        os.makedirs(self.base_dir, exist_ok=True)
+        # Crear directorio de producción (crea toda la ruta si no existe)
+        self.base_dir = Path(f"entrenamientos/{train_id}/produccion")
+        try:
+            self.base_dir.mkdir(parents=True, exist_ok=True)
+            log.info(f"📁 Directorio de producción: {self.base_dir}")
+        except Exception as e:
+            log.error(f"❌ Error al crear directorio de producción: {e}")
+            raise RuntimeError(f"No se pudo crear el directorio de producción: {e}")
         
         # Timestamp del inicio de la sesión
         self.session_start = datetime.now().strftime("%Y%m%d_%H%M%S")
         
-        # Paths de archivos
-        self.registro_path = f"{self.base_dir}/registro_{self.session_start}.csv"
-        self.emergencia_path = f"{self.base_dir}/emergencias_{self.session_start}.csv"
+        # Paths de archivos (convertir a Path objects para mejor manejo)
+        self.registro_path = self.base_dir / f"registro_{self.session_start}.csv"
+        self.emergencia_path = self.base_dir / f"emergencias_{self.session_start}.csv"
         
         # Campos del registro principal (estructura compatible con info_builder)
         self.campos_principales = [
@@ -220,7 +224,7 @@ class RegistroProduccion:
             log.error(f"Error al registrar emergencia: {e}")
             # Intentar al menos loggear en archivo de texto plano
             try:
-                error_log = f"{self.base_dir}/error_emergencia_{self.session_start}.txt"
+                error_log = self.base_dir / f"error_emergencia_{self.session_start}.txt"
                 with open(error_log, 'a') as f:
                     f.write(f"{datetime.now().isoformat()} - {razon}\n")
                     f.write(f"Balance: {balance_final}, Equity: {equity_final}\n")
