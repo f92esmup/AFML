@@ -376,3 +376,52 @@ class TestRegistroProduccionEdgeCases:
         
         # Debe ser parseable como timestamp
         datetime.strptime(registro.session_start, "%Y%m%d_%H%M%S")
+
+    def test_get_session_timestamp(self, temp_train_dir):
+        """Test del método get_session_timestamp."""
+        train_id, _ = temp_train_dir
+        registro = RegistroProduccion(train_id)
+        
+        timestamp = registro.get_session_timestamp()
+        
+        # Debe retornar el mismo timestamp que session_start
+        assert timestamp == registro.session_start
+        
+        # Debe ser un string válido
+        assert isinstance(timestamp, str)
+        assert len(timestamp) == 15
+        
+        # Formato correcto
+        datetime.strptime(timestamp, "%Y%m%d_%H%M%S")
+
+    def test_get_base_dir(self, temp_train_dir):
+        """Test del método get_base_dir."""
+        train_id, base_path = temp_train_dir
+        registro = RegistroProduccion(train_id)
+        
+        base_dir = registro.get_base_dir()
+        
+        # Debe retornar el mismo directorio base
+        assert base_dir == registro.base_dir
+        
+        # Debe ser un Path
+        assert isinstance(base_dir, Path)
+        
+        # Debe existir
+        assert base_dir.exists()
+        assert base_dir.is_dir()
+        
+        # Debe terminar en /produccion
+        assert base_dir.name == "produccion"
+
+    def test_get_base_dir_string_path(self, temp_train_dir):
+        """Test que get_base_dir retorna un Path válido."""
+        train_id, base_path = temp_train_dir
+        registro = RegistroProduccion(train_id)
+        
+        base_dir = registro.get_base_dir()
+        
+        # Debe poder convertirse a string
+        base_dir_str = str(base_dir)
+        assert isinstance(base_dir_str, str)
+        assert "produccion" in base_dir_str

@@ -139,3 +139,69 @@ def redirect_stdout_to_file(log_file: str) -> None:
     # Redirigir stdout y stderr
     sys.stdout = StreamToLogger(stdout_logger, logging.INFO)
     sys.stderr = StreamToLogger(stdout_logger, logging.ERROR)
+
+
+def configure_production_logging(base_dir: str, session_timestamp: str) -> str:
+    """
+    Configura logging completo para producción.
+    Centraliza TODOS los logs en un único archivo produccion_{timestamp}.log
+    
+    Captura:
+    - Logger principal AFML y submódulos
+    - Loggers de librerías externas (binance, websockets, etc.)
+    - stdout y stderr (prints, mensajes de consola)
+    
+    Args:
+        base_dir: Directorio de producción (ej: entrenamientos/train_XXX/produccion)
+        session_timestamp: Timestamp de la sesión (ej: 20250105_143022)
+        
+    Returns:
+        Ruta completa del archivo de log
+    """
+    log_path = os.path.join(base_dir, f"produccion_{session_timestamp}.log")
+    
+    # 1. Configurar logger principal AFML → archivo
+    setup_logger(log_level=logging.INFO, log_file=log_path)
+    
+    # 2. Configurar loggers de librerías externas
+    configure_external_loggers(log_path)
+    
+    # 3. Redirigir stdout/stderr al mismo archivo
+    redirect_stdout_to_file(log_path)
+    
+    return log_path
+
+
+def configure_external_loggers(log_file: str) -> None:
+    """
+    Configura loggers de librerías externas (binance, websockets, etc.)
+    para escribir en el mismo archivo de producción.
+    
+    Solo registra WARNING y ERROR de librerías externas para evitar ruido.
+    
+    Args:
+        log_file: Ruta del archivo de log
+    """
+    formatter = logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+    
+    file_handler = logging.FileHandler(log_file, mode='a', encoding='utf-8')
+    file_handler.setFormatter(formatter)
+    
+    # Lista de librerías que pueden generar logs en producción
+    external_loggers = [
+        'binance',
+        'websockets', 
+        'asyncio',
+        'urllib3',
+        'requests',
+    ]
+    
+    for logger_name in external_loggers:
+        ext_logger = logging.getLogger(logger_name)
+        ext_logger.setLevel(logging.WARNING)  # Solo warnings y errors
+        ext_logger.handlers.clear()
+        ext_logger.addHandler(file_handler)
+        ext_logger.propagate = False

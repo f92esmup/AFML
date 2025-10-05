@@ -110,6 +110,24 @@ class RegistroProduccion:
         log.info(f"   Registro principal: {self.registro_path}")
         log.info(f"   Registro emergencias: {self.emergencia_path}")
     
+    def get_session_timestamp(self) -> str:
+        """
+        Retorna el timestamp de inicio de sesión.
+        
+        Returns:
+            Timestamp en formato YYYYMMDD_HHMMSS
+        """
+        return self.session_start
+    
+    def get_base_dir(self) -> Path:
+        """
+        Retorna el directorio base de producción.
+        
+        Returns:
+            Path del directorio de producción
+        """
+        return self.base_dir
+    
     def _inicializar_csv_principal(self) -> None:
         """Crea el archivo CSV principal con encabezados."""
         try:

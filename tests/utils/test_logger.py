@@ -12,7 +12,9 @@ from src.utils.logger import (
     configure_file_logging,
     configure_sb3_logger,
     StreamToLogger,
-    redirect_stdout_to_file
+    redirect_stdout_to_file,
+    configure_production_logging,
+    configure_external_loggers
 )
 
 
@@ -356,3 +358,169 @@ class TestIntegration:
         logger = logging.getLogger("AFML")
         assert len(logger.handlers) == 1
         assert isinstance(logger.handlers[0], logging.FileHandler)
+
+
+class TestConfigureProductionLogging:
+    """Tests para la función configure_production_logging."""
+
+    def test_configure_production_logging_crea_archivo(self, clean_logger, temp_log_dir):
+        """Verifica que se crea el archivo de log de producción."""
+        session_timestamp = "20250105_143022"
+        
+        log_path = configure_production_logging(temp_log_dir, session_timestamp)
+        
+        expected_path = os.path.join(temp_log_dir, f"produccion_{session_timestamp}.log")
+        assert log_path == expected_path
+        assert os.path.exists(log_path)
+
+    def test_configure_production_logging_configura_logger_principal(self, clean_logger, temp_log_dir):
+        """Verifica que configura el logger principal AFML."""
+        session_timestamp = "20250105_143022"
+        
+        log_path = configure_production_logging(temp_log_dir, session_timestamp)
+        
+        logger = logging.getLogger("AFML")
+        assert len(logger.handlers) == 1
+        assert isinstance(logger.handlers[0], logging.FileHandler)
+        assert logger.handlers[0].baseFilename == log_path
+
+    def test_configure_production_logging_escribe_logs(self, clean_logger, temp_log_dir):
+        """Verifica que los logs se escriben correctamente."""
+        session_timestamp = "20250105_143022"
+        
+        log_path = configure_production_logging(temp_log_dir, session_timestamp)
+        
+        logger = logging.getLogger("AFML.test")
+        logger.info("Test production log")
+        
+        # Flush
+        for handler in logger.handlers:
+            handler.flush()
+        
+        with open(log_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+            assert "Test production log" in content
+
+    def test_configure_production_logging_configura_external_loggers(self, clean_logger, temp_log_dir):
+        """Verifica que configura loggers externos."""
+        session_timestamp = "20250105_143022"
+        
+        log_path = configure_production_logging(temp_log_dir, session_timestamp)
+        
+        # Verificar que los loggers externos están configurados
+        binance_logger = logging.getLogger("binance")
+        assert len(binance_logger.handlers) == 1
+        assert binance_logger.level == logging.WARNING
+        assert binance_logger.propagate is False
+
+    def test_configure_production_logging_redirige_stdout(self, clean_logger, temp_log_dir):
+        """Verifica que redirige stdout al archivo."""
+        session_timestamp = "20250105_143022"
+        
+        log_path = configure_production_logging(temp_log_dir, session_timestamp)
+        
+        # Verificar que stdout fue redirigido
+        from src.utils.logger import StreamToLogger
+        assert isinstance(sys.stdout, StreamToLogger)
+
+
+class TestConfigureExternalLoggers:
+    """Tests para la función configure_external_loggers."""
+
+    def test_configure_external_loggers_crea_handlers(self, clean_logger, temp_log_file):
+        """Verifica que crea handlers para loggers externos."""
+        configure_external_loggers(temp_log_file)
+        
+        # Verificar algunos loggers externos
+        loggers_to_check = ['binance', 'websockets', 'asyncio']
+        
+        for logger_name in loggers_to_check:
+            logger = logging.getLogger(logger_name)
+            assert len(logger.handlers) >= 1
+            assert any(isinstance(h, logging.FileHandler) for h in logger.handlers)
+
+    def test_configure_external_loggers_nivel_warning(self, clean_logger, temp_log_file):
+        """Verifica que el nivel es WARNING para loggers externos."""
+        configure_external_loggers(temp_log_file)
+        
+        binance_logger = logging.getLogger("binance")
+        assert binance_logger.level == logging.WARNING
+
+    def test_configure_external_loggers_no_propagacion(self, clean_logger, temp_log_file):
+        """Verifica que los loggers externos no propagan."""
+        configure_external_loggers(temp_log_file)
+        
+        for logger_name in ['binance', 'websockets', 'asyncio']:
+            logger = logging.getLogger(logger_name)
+            assert logger.propagate is False
+
+    def test_configure_external_loggers_escribe_warnings(self, clean_logger, temp_log_file):
+        """Verifica que escribe warnings de loggers externos."""
+        configure_external_loggers(temp_log_file)
+        
+        binance_logger = logging.getLogger("binance")
+        binance_logger.warning("Test warning from binance")
+        
+        # Flush
+        for handler in binance_logger.handlers:
+            handler.flush()
+        
+        with open(temp_log_file, 'r', encoding='utf-8') as f:
+            content = f.read()
+            assert "Test warning from binance" in content
+            assert "WARNING" in content
+
+    def test_configure_external_loggers_no_escribe_info(self, clean_logger, temp_log_file):
+        """Verifica que NO escribe INFO de loggers externos (solo WARNING+)."""
+        configure_external_loggers(temp_log_file)
+        
+        binance_logger = logging.getLogger("binance")
+        binance_logger.info("Info message should not appear")
+        binance_logger.warning("Warning message should appear")
+        
+        # Flush
+        for handler in binance_logger.handlers:
+            handler.flush()
+        
+        with open(temp_log_file, 'r', encoding='utf-8') as f:
+            content = f.read()
+            assert "Info message should not appear" not in content
+            assert "Warning message should appear" in content
+
+
+class TestProductionIntegration:
+    """Tests de integración para el flujo de producción."""
+
+    def test_flujo_completo_produccion(self, clean_logger, temp_log_dir):
+        """Simula el flujo completo de configuración de logging para producción."""
+        session_timestamp = "20250105_143022"
+        
+        # 1. Configurar logging de producción
+        log_path = configure_production_logging(temp_log_dir, session_timestamp)
+        
+        # 2. Hacer logs desde diferentes fuentes
+        afml_logger = logging.getLogger("AFML.live")
+        afml_logger.info("Sistema iniciado")
+        
+        binance_logger = logging.getLogger("binance")
+        binance_logger.warning("API warning")
+        
+        # 3. Simular un print (stdout)
+        print("Console output")
+        
+        # Flush todos
+        for handler in afml_logger.handlers:
+            handler.flush()
+        for handler in binance_logger.handlers:
+            handler.flush()
+        sys.stdout.flush()
+        
+        import time
+        time.sleep(0.1)
+        
+        # 4. Verificar que todo está en el archivo
+        with open(log_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+            assert "Sistema iniciado" in content
+            assert "API warning" in content
+            assert "Console output" in content

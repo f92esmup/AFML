@@ -12,7 +12,7 @@ from typing import Dict, Any
 from binance import Client
 from dotenv import load_dotenv
 
-from src.utils.logger import setup_logger
+from src.utils.logger import setup_logger, configure_production_logging
 from src.produccion.config.cli import parse_args
 from src.produccion.config.config import ProductionConfig
 from src.produccion.binance import BinanceConnector
@@ -34,9 +34,14 @@ log = logging.getLogger("AFML.live")
 async def main() -> None:
     """Función principal del sistema de trading en producción."""
     
-    log.info("=" * 80)
-    log.info("🚀 INICIANDO SISTEMA DE TRADING EN PRODUCCIÓN")
-    log.info("=" * 80)
+    # ============================================================================
+    # FASE 0: CONFIGURACIÓN INICIAL DE LOGGING (TEMPORAL EN CONSOLA)
+    # ============================================================================
+    # Primero, logging básico en consola hasta crear el directorio de producción
+    setup_logger()
+    log = logging.getLogger("AFML.live")
+    
+    log.info("Iniciando sistema...")
     
     # ============================================================================
     # FASE 1: INICIALIZACIÓN DE COMPONENTES
@@ -50,10 +55,35 @@ async def main() -> None:
         log.info(f"  - Modo: {'LIVE ⚠️' if args.live else 'TESTNET ✅'}")
         
         # 1.2 Cargar configuración
-        log.info("\nCargando configuración...")
+        log.info("Cargando configuración...")
         config = ProductionConfig.load_config(args)
         
-        # 1.3 Obtener credenciales de Binance desde variables de entorno
+        # 1.3 Crear sistema de registro (esto crea el directorio de producción)
+        log.info("Inicializando sistema de registro...")
+        registro = RegistroProduccion(config.train_id)
+        
+        # ============================================================================
+        # FASE 0.5: RECONFIGURAR LOGGING A ARCHIVO
+        # ============================================================================
+        log.info("Reconfigurando logging a archivo...")
+        log_file_path = configure_production_logging(
+            base_dir=str(registro.get_base_dir()),
+            session_timestamp=registro.get_session_timestamp()
+        )
+        
+        # IMPORTANTE: Recrear referencia al logger después de reconfiguración
+        log = logging.getLogger("AFML.live")
+        
+        # A partir de AHORA todos los logs irán SOLO al archivo
+        log.info("=" * 80)
+        log.info("🚀 INICIANDO SISTEMA DE TRADING EN PRODUCCIÓN")
+        log.info("=" * 80)
+        log.info(f"📝 Logs centralizados en: {log_file_path}")
+        log.info(f"Argumentos recibidos:")
+        log.info(f"  - Train ID: {args.train_id}")
+        log.info(f"  - Modo: {'LIVE ⚠️' if args.live else 'TESTNET ✅'}")
+        
+        # 1.4 Obtener credenciales de Binance desde variables de entorno
         if args.live:
             api_key = os.getenv('BINANCE_API_KEY')
             api_secret = os.getenv('BINANCE_API_SECRET')
@@ -69,7 +99,7 @@ async def main() -> None:
                 "Define BINANCE_API_KEY y BINANCE_API_SECRET (o versiones TESTNET)"
             )
         
-        # 1.4 Crear componentes
+        # 1.5 Crear componentes
         log.info("\n📦 Creando componentes del sistema...")
         
         # Cliente de Binance (síncrono para operaciones)
@@ -111,9 +141,8 @@ async def main() -> None:
         control_riesgo = ControlRiesgo(config, binance)
         log.info("✅ Control de riesgo inicializado")
         
-        # Sistema de registro
-        registro = RegistroProduccion(config.train_id)
-        log.info("✅ Sistema de registro inicializado")
+        # NOTA: Sistema de registro ya fue creado en FASE 0.5
+        log.info("✅ Sistema de registro ya inicializado")
         
         log.info("\n✅ Todos los componentes inicializados correctamente")
         
