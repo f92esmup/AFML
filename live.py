@@ -103,10 +103,12 @@ async def main() -> None:
         log.info("\n📦 Creando componentes del sistema...")
         
         # Cliente de Binance (síncrono para operaciones)
+        # Timeout aumentado a 60 segundos para evitar timeouts en redes lentas
         cliente_binance = Client(
             api_key=api_key,
             api_secret=api_secret,
-            testnet=not args.live
+            testnet=not args.live,
+            requests_params={'timeout': 60}  # Timeout de 60 segundos
         )
         binance = BinanceConnector(cliente_binance, config)
         log.info("✅ Conector de Binance creado")

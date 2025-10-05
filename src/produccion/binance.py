@@ -4,6 +4,8 @@ from binance.client import Client
 from binance.exceptions import BinanceAPIException
 from typing import Dict, Any, Optional, List
 import logging
+import time
+from requests.exceptions import ReadTimeout, ConnectionError, Timeout
 
 from src.produccion.config.config import ProductionConfig
 
@@ -107,7 +109,7 @@ class BinanceConnector:
         time_in_force: str = "GTC",
     ) -> Optional[Dict[str, Any]]:
         """
-        Crea una orden genérica para Futures USDT-M con configuración one-way
+        Crea una orden genérica para Futures USDT-M con configuración one-way y reintentos automáticos
 
         Args:
             symbol: Símbolo del par de trading (ej: 'BTCUSDT')
@@ -118,80 +120,129 @@ class BinanceConnector:
             time_in_force: Tiempo de vigencia de la orden
 
         Returns:
-            Diccionario con la respuesta de la API de Binance
+            Diccionario con la respuesta de la API de Binance o None en caso de error
 
         Raises:
             BinanceAPIException: Error en la API de Binance
         """
-        try:
-            order_params = {
-                "symbol": symbol,
-                "side": side,
-                "type": order_type,
-                "quantity": quantity,
-                "reduceOnly": reduce_only,
-            }
+        max_retries = 3
+        base_delay = 1  # segundos (más corto para órdenes)
+        
+        for attempt in range(max_retries):
+            try:
+                order_params = {
+                    "symbol": symbol,
+                    "side": side,
+                    "type": order_type,
+                    "quantity": quantity,
+                    "reduceOnly": reduce_only,
+                }
 
-            # Solo agregar timeInForce para órdenes que no sean MARKET
-            if order_type != "MARKET":
-                order_params["timeInForce"] = time_in_force
+                # Solo agregar timeInForce para órdenes que no sean MARKET
+                if order_type != "MARKET":
+                    order_params["timeInForce"] = time_in_force
 
-            orden = self._client.futures_create_order(**order_params)
-            log.info(f"Orden creada exitosamente: {orden['orderId']}")
+                orden = self._client.futures_create_order(**order_params)
+                log.info(f"Orden creada exitosamente: {orden['orderId']}")
 
-            # Actualizar información de cuenta después de crear orden
-            self.get_account_info()
+                # Actualizar información de cuenta después de crear orden
+                self.get_account_info()
 
-            return orden
+                return orden
 
-        except BinanceAPIException as e:
-            log.error(f"Error al crear la orden: {e}")
-            # No re-lanzar, retornar None para que el llamador maneje el error
-            return None
+            except (ReadTimeout, ConnectionError, Timeout) as e:
+                attempt_num = attempt + 1
+                if attempt_num < max_retries:
+                    delay = base_delay * (2 ** attempt)
+                    log.warning(
+                        f"⚠️ Timeout al crear orden (intento {attempt_num}/{max_retries}). "
+                        f"Reintentando en {delay}s... Error: {type(e).__name__}"
+                    )
+                    time.sleep(delay)
+                else:
+                    log.error(
+                        f"❌ Error de timeout al crear orden después de {max_retries} intentos: {e}"
+                    )
+                    return None
+                    
+            except BinanceAPIException as e:
+                log.error(f"Error al crear la orden: {e}")
+                # No re-lanzar, retornar None para que el llamador maneje el error
+                return None
+            except Exception as e:
+                log.error(f"Error inesperado al crear orden: {e}")
+                return None
+        
+        return None
 
     def get_account_info(self) -> bool:
         """
-        Obtiene y actualiza la información de la cuenta de Futures
+        Obtiene y actualiza la información de la cuenta de Futures con reintentos automáticos
 
         Returns:
             True si la operación fue exitosa, False en caso contrario
         """
-        try:
-            # Obtener información general de la cuenta
-            account_info = self._client.futures_account()
+        max_retries = 3
+        base_delay = 2  # segundos
+        
+        for attempt in range(max_retries):
+            try:
+                # Obtener información general de la cuenta
+                account_info = self._client.futures_account()
 
-            # Actualizar balance y equity
-            self._balance = float(account_info["totalWalletBalance"])
-            self._equity = float(account_info["totalMarginBalance"])
-            self._pnl_total = float(account_info["totalUnrealizedProfit"])
-            
-            # Actualizar max equity para cálculo de drawdown
-            if self._equity > self._max_equity:
-                self._max_equity = self._equity
+                # Actualizar balance y equity
+                self._balance = float(account_info["totalWalletBalance"])
+                self._equity = float(account_info["totalMarginBalance"])
+                self._pnl_total = float(account_info["totalUnrealizedProfit"])
+                
+                # Actualizar max equity para cálculo de drawdown
+                if self._equity > self._max_equity:
+                    self._max_equity = self._equity
 
-            # Verificar si hay posiciones abiertas y guardar información
-            positions = self._client.futures_position_information(
-                symbol=self._config.simbolo
-            )
-            
-            self._posicion_abierta = False
-            self._posicion_info = None
-            
-            for pos in positions:
-                position_amt = float(pos["positionAmt"])
-                if position_amt != 0:
-                    self._posicion_abierta = True
-                    self._posicion_info = pos
-                    break
+                # Verificar si hay posiciones abiertas y guardar información
+                positions = self._client.futures_position_information(
+                    symbol=self._config.simbolo
+                )
+                
+                self._posicion_abierta = False
+                self._posicion_info = None
+                
+                for pos in positions:
+                    position_amt = float(pos["positionAmt"])
+                    if position_amt != 0:
+                        self._posicion_abierta = True
+                        self._posicion_info = pos
+                        break
 
-            log.debug(
-                f"Información de cuenta actualizada - Balance: {self._balance}, Equity: {self._equity}, Posición: {self._posicion_abierta}"
-            )
-            return True
+                log.debug(
+                    f"Información de cuenta actualizada - Balance: {self._balance}, Equity: {self._equity}, Posición: {self._posicion_abierta}"
+                )
+                return True
 
-        except BinanceAPIException as e:
-            log.error(f"Error al obtener la información de la cuenta: {e}")
-            return False
+            except (ReadTimeout, ConnectionError, Timeout) as e:
+                attempt_num = attempt + 1
+                if attempt_num < max_retries:
+                    # Backoff exponencial: 2s, 4s, 8s
+                    delay = base_delay * (2 ** attempt)
+                    log.warning(
+                        f"⚠️ Timeout en API de Binance (intento {attempt_num}/{max_retries}). "
+                        f"Reintentando en {delay}s... Error: {type(e).__name__}"
+                    )
+                    time.sleep(delay)
+                else:
+                    log.error(
+                        f"❌ Error de timeout después de {max_retries} intentos: {e}"
+                    )
+                    return False
+                    
+            except BinanceAPIException as e:
+                log.error(f"Error al obtener la información de la cuenta: {e}")
+                return False
+            except Exception as e:
+                log.error(f"Error inesperado al obtener información de cuenta: {e}")
+                return False
+        
+        return False
 
     # Propiedades para acceso controlado a los atributos privados
     @property
@@ -334,20 +385,62 @@ class BinanceConnector:
                 log.warning("Cerrando todas las posiciones...")
             
             # 1. Cancelar todas las órdenes pendientes
-            try:
-                self._client.futures_cancel_all_open_orders(symbol=self._config.simbolo)
-                resultado['ordenes_canceladas'] = 1  # No sabemos el número exacto
-                log.info("✅ Órdenes pendientes canceladas")
-            except BinanceAPIException as e:
-                error_msg = f"Error al cancelar órdenes: {e}"
-                log.error(error_msg)
-                resultado['errores'].append(error_msg)
+            max_retries = 3
+            base_delay = 1
             
-            # 2. Obtener posiciones actuales
-            try:
-                positions = self._client.futures_position_information(symbol=self._config.simbolo)
-            except BinanceAPIException as e:
-                error_msg = f"Error al obtener posiciones: {e}"
+            for attempt in range(max_retries):
+                try:
+                    self._client.futures_cancel_all_open_orders(symbol=self._config.simbolo)
+                    resultado['ordenes_canceladas'] = 1  # No sabemos el número exacto
+                    log.info("✅ Órdenes pendientes canceladas")
+                    break  # Éxito, salir del loop
+                except (ReadTimeout, ConnectionError, Timeout) as e:
+                    attempt_num = attempt + 1
+                    if attempt_num < max_retries:
+                        delay = base_delay * (2 ** attempt)
+                        log.warning(
+                            f"⚠️ Timeout al cancelar órdenes (intento {attempt_num}/{max_retries}). "
+                            f"Reintentando en {delay}s..."
+                        )
+                        time.sleep(delay)
+                    else:
+                        error_msg = f"Error de timeout al cancelar órdenes después de {max_retries} intentos: {e}"
+                        log.error(error_msg)
+                        resultado['errores'].append(error_msg)
+                except BinanceAPIException as e:
+                    error_msg = f"Error al cancelar órdenes: {e}"
+                    log.error(error_msg)
+                    resultado['errores'].append(error_msg)
+                    break  # Error de API, no reintentar
+            
+            # 2. Obtener posiciones actuales con reintentos
+            positions = None
+            for attempt in range(max_retries):
+                try:
+                    positions = self._client.futures_position_information(symbol=self._config.simbolo)
+                    break  # Éxito, salir del loop
+                except (ReadTimeout, ConnectionError, Timeout) as e:
+                    attempt_num = attempt + 1
+                    if attempt_num < max_retries:
+                        delay = base_delay * (2 ** attempt)
+                        log.warning(
+                            f"⚠️ Timeout al obtener posiciones (intento {attempt_num}/{max_retries}). "
+                            f"Reintentando en {delay}s..."
+                        )
+                        time.sleep(delay)
+                    else:
+                        error_msg = f"Error de timeout al obtener posiciones después de {max_retries} intentos: {e}"
+                        log.error(error_msg)
+                        resultado['errores'].append(error_msg)
+                        return resultado
+                except BinanceAPIException as e:
+                    error_msg = f"Error al obtener posiciones: {e}"
+                    log.error(error_msg)
+                    resultado['errores'].append(error_msg)
+                    return resultado
+            
+            if positions is None:
+                error_msg = "No se pudieron obtener las posiciones"
                 log.error(error_msg)
                 resultado['errores'].append(error_msg)
                 return resultado
