@@ -30,8 +30,11 @@ class TestAgenteProduccion:
             
             agente = AgenteProduccion(production_config)
             
-            # Verificar que se cargó el modelo
-            mock_load.assert_called_once_with("/fake/path/modelo.zip")
+            # Verificar que se cargó el modelo con device='cpu' (o el device detectado)
+            assert mock_load.call_count == 1
+            call_args = mock_load.call_args
+            assert call_args[0][0] == "/fake/path/modelo.zip"
+            assert 'device' in call_args[1]
             assert agente.model is not None
             assert agente.umbral_mantener == 0.1
             
