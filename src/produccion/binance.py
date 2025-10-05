@@ -503,40 +503,76 @@ class BinanceConnector:
     def calculate_position_size(
         self, 
         action: float, 
-        precio_actual: float,
-        porcentaje_capital: float = 0.95
+        precio_actual: float
     ) -> float:
         """
         Calcula el tamaño de la posición basado en la acción del agente.
         
+        EQUIVALENCIA MATEMÁTICA CON ENTRENAMIENTO:
+        - Usa EQUITY (no balance) como base del cálculo
+        - Incluye apalancamiento para determinar cantidad
+        - Valida que el margen requerido no exceda el balance disponible
+        - NO simula comisiones/slippage (Binance ya los incluye en equity real)
+        
+        Fórmula: cantidad = (equity * apalancamiento * intensidad) / precio
+        donde intensidad = abs(action) y representa el % del equity a usar
+        
         Args:
             action: Acción del agente (valor entre -1 y 1)
+                   El valor absoluto representa el porcentaje del equity a usar
             precio_actual: Precio actual del activo
-            porcentaje_capital: Porcentaje del balance a usar (default: 95%)
             
         Returns:
-            Cantidad a operar (en unidades del activo)
+            Cantidad a operar (en unidades del activo), 0.0 si no hay balance suficiente
         """
         try:
-            # El valor absoluto de la acción indica la intensidad
+            # El valor absoluto de la acción indica el porcentaje del equity a usar
             intensidad = abs(action)
+
+            # PASO 1: Calcular cantidad objetivo usando EQUITY (equivalente a entrenamiento)
+            # cantidad = (equity * apalancamiento * porcentaje_inversion) / precio
+            cantidad_objetivo = (self._equity * self._config.apalancamiento * intensidad) / precio_actual
             
-            # Capital disponible para operar
-            capital_disponible = self._balance * porcentaje_capital * intensidad
+            if cantidad_objetivo <= 0:
+                log.warning(f"Cantidad objetivo calculada es <= 0: {cantidad_objetivo}")
+                return 0.0
             
-            # Considerando el apalancamiento
-            capital_apalancado = capital_disponible * self._config.apalancamiento
+            # PASO 2: Calcular margen requerido (lo que Binance descontará del balance)
+            # margen = (precio * cantidad) / apalancamiento
+            margen_requerido = (precio_actual * cantidad_objetivo) / self._config.apalancamiento
             
-            # Cantidad en unidades del activo
-            cantidad = capital_apalancado / precio_actual
+            # PASO 3: Validar que el margen cabe en el balance disponible
+            if margen_requerido > self._balance:
+                # NO HAY SUFICIENTE BALANCE DISPONIBLE
+                # NO se ejecuta la operación (retornar 0)
+                log.warning(
+                    f"⚠️  Balance insuficiente para ejecutar la operación"
+                )
+                log.warning(
+                    f"   Margen requerido: ${margen_requerido:.2f}"
+                )
+                log.warning(
+                    f"   Balance disponible: ${self._balance:.2f}"
+                )
+                log.warning(
+                    f"   Cantidad objetivo: {cantidad_objetivo:.6f}"
+                )
+                log.warning(
+                    f"   Operación NO ejecutada"
+                )
+                
+                return 0.0
             
-            # Redondear según las especificaciones del símbolo
-            # (En producción real, deberías obtener esto de exchange_info)
-            cantidad = round(cantidad, 3)  # Ajustar según el símbolo
+            # El margen cabe en el balance, usar cantidad objetivo
+            cantidad_final = round(cantidad_objetivo, 3)
             
-            log.debug(f"Tamaño de posición calculado: {cantidad} (intensidad: {intensidad:.2f})")
+            log.debug(
+                f"Cantidad calculada: {cantidad_final} "
+                f"(equity: ${self._equity:.2f}, intensidad: {intensidad:.2%}, "
+                f"margen requerido: ${margen_requerido:.2f})"
+            )
             
-            return cantidad
+            return cantidad_final
             
         except Exception as e:
             log.error(f"Error al calcular tamaño de posición: {e}")
