@@ -21,7 +21,7 @@ def config_metadata_dict() -> Dict[str, Any]:
         "apalancamiento": 2.0,
         "intervalo": "1h",
         "simbolo": "BTCUSDT",
-        "capital_inicial": 10000.0,
+        # NOTA: capital_inicial NO se incluye porque debe obtenerse de Binance API
         "comision": 0.001,
         "slippage": 0.0005,
         "window_size": 30,
@@ -167,6 +167,34 @@ def mock_binance_client():
     client.futures_cancel_all_open_orders.return_value = {"msg": "success"}
     
     return client
+
+
+@pytest.fixture
+def mock_binance_connector(mock_binance_client, config_metadata_dict):
+    """Mock del BinanceConnector ya inicializado con valores reales."""
+    from src.produccion.binance import BinanceConnector
+    from src.produccion.config.config import ProductionConfig
+    
+    # Crear config mínima
+    config = ProductionConfig(
+        **config_metadata_dict,
+        train_id="test_train",
+        model_path="/path/to/model",
+        scaler_path="/path/to/scaler",
+        is_live=False
+    )
+    
+    # Crear connector
+    connector = BinanceConnector(mock_binance_client, config)
+    
+    # Simular initialize_account
+    connector._equity_inicial = 10000.0
+    connector._balance_inicial = 10000.0
+    connector._equity = 10000.0
+    connector._balance = 10000.0
+    connector._max_equity = 10000.0
+    
+    return connector
 
 
 @pytest.fixture

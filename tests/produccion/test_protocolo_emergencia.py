@@ -29,6 +29,10 @@ class TestProtocoloEmergenciaNaN:
     def mock_binance(self):
         """Mock del conector Binance."""
         binance = Mock()
+        binance.equity_inicial = 10000.0  # Necesario para ControlRiesgo
+        binance._equity_inicial = 10000.0
+        binance.balance_inicial = 10000.0
+        binance._balance_inicial = 10000.0
         binance.get_position_info = Mock(return_value={
             "balance": 10000.0,
             "equity": 10000.0,
@@ -45,7 +49,8 @@ class TestProtocoloEmergenciaNaN:
     
     def test_ventana_con_nan_lanza_valueerror(self, production_config, fitted_scaler):
         """Test que ventana con NaN lanza ValueError."""
-        builder = ObservacionBuilder(production_config, fitted_scaler)
+        equity_inicial = 10000.0
+        builder = ObservacionBuilder(production_config, fitted_scaler, equity_inicial)
         
         # Crear ventana con NaN en algunos valores
         ventana_con_nan = pd.DataFrame({
@@ -71,7 +76,8 @@ class TestProtocoloEmergenciaNaN:
     
     def test_ventana_sin_nan_funciona(self, production_config, fitted_scaler):
         """Test que ventana sin NaN funciona correctamente."""
-        builder = ObservacionBuilder(production_config, fitted_scaler)
+        equity_inicial = 10000.0
+        builder = ObservacionBuilder(production_config, fitted_scaler, equity_inicial)
         
         # Crear ventana sin NaN
         ventana_valida = pd.DataFrame({
@@ -124,11 +130,12 @@ class TestProtocoloEmergenciaNaN:
         # Verificar resultado - la clave es 'exitoso' no 'exito'
         assert resultado['exitoso'] is True
         assert control.emergencia_activa is True
-        assert "NaN en ventana" in control.razon_emergencia
+        assert control.razon_emergencia is not None and "NaN en ventana" in control.razon_emergencia
     
     def test_mensaje_error_nan_contiene_columnas(self, production_config, fitted_scaler):
         """Test que el mensaje de error incluye las columnas con NaN."""
-        builder = ObservacionBuilder(production_config, fitted_scaler)
+        equity_inicial = 10000.0
+        builder = ObservacionBuilder(production_config, fitted_scaler, equity_inicial)
         
         # Ventana con NaN en columnas específicas
         ventana_con_nan = pd.DataFrame({
@@ -179,6 +186,10 @@ class TestProtocoloEmergenciaDrawdown:
     def mock_binance(self):
         """Mock del conector Binance."""
         binance = Mock()
+        binance.equity_inicial = 10000.0  # Necesario para ControlRiesgo
+        binance._equity_inicial = 10000.0
+        binance.balance_inicial = 10000.0
+        binance._balance_inicial = 10000.0
         binance.get_position_info = Mock(return_value={
             "balance": 8000.0,  # 20% de drawdown
             "equity": 8000.0,
@@ -247,6 +258,10 @@ class TestIntegracionProtocoloEmergencia:
     def mock_binance(self):
         """Mock del conector Binance."""
         binance = Mock()
+        binance.equity_inicial = 10000.0  # Necesario para ControlRiesgo
+        binance._equity_inicial = 10000.0
+        binance.balance_inicial = 10000.0
+        binance._balance_inicial = 10000.0
         binance.get_position_info = Mock(return_value={
             "balance": 10000.0,
             "equity": 10000.0,
@@ -264,7 +279,8 @@ class TestIntegracionProtocoloEmergencia:
         """Test del flujo completo: NaN → ValueError → Protocolo Emergencia."""
         
         # 1. ObservacionBuilder con ventana con NaN
-        builder = ObservacionBuilder(production_config, fitted_scaler)
+        equity_inicial = 10000.0
+        builder = ObservacionBuilder(production_config, fitted_scaler, equity_inicial)
         
         ventana_con_nan = pd.DataFrame({
             "close": [50000.0] * 30,
@@ -296,3 +312,149 @@ class TestIntegracionProtocoloEmergencia:
         assert resultado['exitoso'] is True  # Cambiar 'exito' a 'exitoso'
         assert control.emergencia_activa is True
         mock_binance.close_all_positions.assert_called_once()
+    
+    def test_protocolo_emergencia_con_error_cierre(self, production_config, mock_binance):
+        """Test que el protocolo maneja errores al cerrar posiciones."""
+        # Configurar mock para que falle al cerrar
+        mock_binance.close_all_positions.return_value = {
+            "posiciones_cerradas": 0,
+            "balance_final": 10000.0,
+            "equity_final": 10000.0,
+            "errores": ["Error al cerrar posición LONG"]
+        }
+        
+        control = ControlRiesgo(production_config, mock_binance)
+        resultado = control.activar_protocolo_emergencia("Test: Error en cierre")
+        
+        # Debe marcar como no exitoso si hay errores
+        assert resultado['exitoso'] is False
+        assert len(resultado['errores']) > 0
+        assert control.emergencia_activa is True  # Se activa de todas formas
+    
+    def test_protocolo_emergencia_con_excepcion(self, production_config, mock_binance):
+        """Test que el protocolo maneja excepciones críticas."""
+        # Configurar mock para lanzar excepción
+        mock_binance.close_all_positions.side_effect = Exception("Error crítico de conexión")
+        
+        control = ControlRiesgo(production_config, mock_binance)
+        resultado = control.activar_protocolo_emergencia("Test: Excepción")
+        
+        # Debe retornar resultado con error
+        assert resultado['exitoso'] is False
+        assert len(resultado['errores']) > 0
+        assert "Error crítico de conexión" in resultado['errores'][0]
+    
+    def test_puede_reiniciar_despues_error_operacional(self, production_config, mock_binance):
+        """Test que puede reiniciar después de error operacional (no drawdown)."""
+        control = ControlRiesgo(production_config, mock_binance)
+        
+        # Activar emergencia por error operacional
+        control.activar_protocolo_emergencia("Error de conexión API")
+        
+        # Debe permitir reinicio
+        assert control.puede_reiniciar() is True
+    
+    def test_no_puede_reiniciar_despues_drawdown(self, production_config, mock_binance):
+        """Test que NO puede reiniciar después de emergencia por drawdown."""
+        control = ControlRiesgo(production_config, mock_binance)
+        
+        # Activar emergencia por drawdown
+        control.activar_protocolo_emergencia("Drawdown excedido: 25%")
+        
+        # NO debe permitir reinicio
+        assert control.puede_reiniciar() is False
+    
+    def test_reset_emergencia_permitido(self, production_config, mock_binance):
+        """Test que puede resetear emergencia si es permitido."""
+        control = ControlRiesgo(production_config, mock_binance)
+        
+        # Activar emergencia operacional
+        control.activar_protocolo_emergencia("Error temporal")
+        assert control.emergencia_activa is True
+        
+        # Resetear
+        control.reset_emergencia()
+        
+        # Debe estar desactivada
+        assert control.emergencia_activa is False
+        assert control.razon_emergencia is None
+    
+    def test_reset_emergencia_no_permitido(self, production_config, mock_binance):
+        """Test que NO puede resetear emergencia por drawdown."""
+        control = ControlRiesgo(production_config, mock_binance)
+        
+        # Activar emergencia por drawdown
+        control.activar_protocolo_emergencia("Max drawdown alcanzado")
+        assert control.emergencia_activa is True
+        
+        # Intentar resetear
+        control.reset_emergencia()
+        
+        # Debe seguir activa
+        assert control.emergencia_activa is True
+        assert control.razon_emergencia is not None
+    
+    def test_validar_accion_rechaza_durante_emergencia(self, production_config, mock_binance):
+        """Test que rechaza acciones cuando hay emergencia activa."""
+        control = ControlRiesgo(production_config, mock_binance)
+        
+        # Activar emergencia
+        control.activar_protocolo_emergencia("Test emergencia")
+        
+        # Intentar validar acción
+        accion = {
+            'tipo': 'long',
+            'operacion': 'abrir',
+            'debe_ejecutar': True
+        }
+        
+        valida, razon = control.validar_accion_pre(accion)
+        
+        # Debe rechazar
+        assert valida is False
+        assert "emergencia" in razon.lower()
+    
+    def test_drawdown_actualiza_max_equity(self, production_config, mock_binance):
+        """Test que verificar_drawdown actualiza el max equity cuando aumenta."""
+        control = ControlRiesgo(production_config, mock_binance)
+        
+        # Equity inicial
+        equity_inicial = control.max_equity_alcanzado
+        
+        # Simular aumento de equity
+        mock_binance.get_position_info.return_value = {
+            "equity": equity_inicial + 1000,
+            "balance": equity_inicial + 1000,
+        }
+        
+        # Verificar drawdown
+        ok, dd = control.verificar_drawdown()
+        
+        # Debe actualizar max equity
+        assert control.max_equity_alcanzado == equity_inicial + 1000
+        assert dd == 0.0  # Sin drawdown
+        assert ok is True
+    
+    def test_drawdown_advertencia_cerca_limite(self, production_config, mock_binance, caplog):
+        """Test que muestra advertencia cuando drawdown está cerca del límite."""
+        import logging
+        
+        control = ControlRiesgo(production_config, mock_binance)
+        control.max_equity_alcanzado = 10000.0
+        
+        # Simular 17% de drawdown (mayor que 80% del límite de 20% que es 16%)
+        mock_binance.get_position_info.return_value = {
+            "equity": 8300.0,
+            "balance": 8300.0,
+        }
+        
+        # Verificar drawdown (caplog debe estar configurado antes de la llamada)
+        caplog.set_level(logging.WARNING, logger="AFML.ControlRiesgo")
+        ok, dd = control.verificar_drawdown()
+        
+        # Debe estar ok pero con advertencia
+        assert ok is True
+        assert dd == pytest.approx(0.17, rel=0.01)
+        # Verificar que hubo advertencia en logs
+        assert any("Drawdown alto" in record.message or "alto" in record.message.lower() 
+                   for record in caplog.records if record.levelno >= logging.WARNING)

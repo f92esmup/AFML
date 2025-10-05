@@ -19,6 +19,9 @@ class ControlRiesgo:
         """
         Inicializa el sistema de control de riesgo.
         
+        IMPORTANTE: BinanceConnector.initialize_account() debe haberse llamado ANTES
+        de crear esta instancia para obtener valores reales de la cuenta.
+        
         Args:
             config: Configuración de producción
             binance: Conector de Binance para obtener información de la cuenta
@@ -28,10 +31,17 @@ class ControlRiesgo:
         
         # Parámetros de riesgo
         self.max_drawdown = config.max_drawdown_permitido
-        self.capital_inicial = config.capital_inicial
         
-        # Tracking del equity máximo alcanzado
-        self.max_equity_alcanzado = self.capital_inicial
+        # Obtener equity inicial REAL de Binance (NO del archivo de configuración)
+        if binance.equity_inicial == 0.0:
+            log.warning("⚠️  ADVERTENCIA: Binance no ha sido inicializado correctamente")
+            log.warning("   Se debe llamar a binance.initialize_account() primero")
+            raise ValueError(
+                "BinanceConnector no inicializado. Llamar a initialize_account() primero"
+            )
+        
+        # Tracking del equity máximo alcanzado (inicia con equity REAL)
+        self.max_equity_alcanzado = binance.equity_inicial
         
         # Estado del sistema
         self.emergencia_activa = False
@@ -39,7 +49,8 @@ class ControlRiesgo:
         
         log.info("✅ Control de riesgo inicializado")
         log.info(f"   Max drawdown permitido: {self.max_drawdown * 100:.1f}%")
-        log.info(f"   Capital inicial: {self.capital_inicial}")
+        log.info(f"   Equity inicial (REAL): {self.max_equity_alcanzado:.2f} USDT")
+        log.info(f"   Balance inicial (REAL): {binance.balance_inicial:.2f} USDT")
     
     def verificar_drawdown(self) -> Tuple[bool, float]:
         """

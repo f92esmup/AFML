@@ -27,17 +27,28 @@ class TestObservacionBuilder:
     
     def test_init(self, production_config, fitted_scaler):
         """Test de inicialización del ObservacionBuilder."""
-        builder = ObservacionBuilder(production_config, fitted_scaler)
+        equity_inicial = 10000.0
+        builder = ObservacionBuilder(production_config, fitted_scaler, equity_inicial)
         
         assert builder.window_size == 30
         assert builder.normalizar_portfolio is True
         assert builder.scaler is not None
+        # Escalas dinámicas basadas en equity_inicial REAL
         assert builder.equity_scale == 10000.0
-        assert builder.pnl_scale == 1000.0
+        assert builder.pnl_scale == 1000.0  # 10% del equity
+    
+    def test_init_equity_inicial_invalido(self, production_config, fitted_scaler):
+        """Test que rechaza equity_inicial inválido."""
+        with pytest.raises(ValueError, match="equity_inicial inválido"):
+            ObservacionBuilder(production_config, fitted_scaler, equity_inicial=0.0)
+        
+        with pytest.raises(ValueError, match="equity_inicial inválido"):
+            ObservacionBuilder(production_config, fitted_scaler, equity_inicial=-100.0)
         
     def test_construir_observacion_success(self, production_config, fitted_scaler, sample_market_data, binance_state_dict):
         """Test de construcción exitosa de observación."""
-        builder = ObservacionBuilder(production_config, fitted_scaler)
+        equity_inicial = 10000.0
+        builder = ObservacionBuilder(production_config, fitted_scaler, equity_inicial)
         
         observacion = builder.construir_observacion(sample_market_data, binance_state_dict)
         
@@ -59,7 +70,8 @@ class TestObservacionBuilder:
         
     def test_construir_observacion_ventana_insuficiente(self, production_config, fitted_scaler, binance_state_dict):
         """Test de error con ventana insuficiente."""
-        builder = ObservacionBuilder(production_config, fitted_scaler)
+        equity_inicial = 10000.0
+        builder = ObservacionBuilder(production_config, fitted_scaler, equity_inicial)
         
         # DataFrame con menos filas que window_size
         df_corto = pd.DataFrame({
@@ -71,7 +83,8 @@ class TestObservacionBuilder:
             
     def test_construir_observacion_normaliza_market(self, production_config, fitted_scaler, sample_market_data, binance_state_dict):
         """Test que los datos de mercado se normalizan con el scaler."""
-        builder = ObservacionBuilder(production_config, fitted_scaler)
+        equity_inicial = 10000.0
+        builder = ObservacionBuilder(production_config, fitted_scaler, equity_inicial)
         
         observacion = builder.construir_observacion(sample_market_data, binance_state_dict)
         
@@ -88,18 +101,19 @@ class TestObservacionBuilder:
         
     def test_construir_observacion_normaliza_portfolio(self, production_config, fitted_scaler, sample_market_data, binance_state_dict):
         """Test que el portfolio se normaliza cuando está configurado."""
-        builder = ObservacionBuilder(production_config, fitted_scaler)
+        equity_inicial = 10000.0
+        builder = ObservacionBuilder(production_config, fitted_scaler, equity_inicial)
         
         observacion = builder.construir_observacion(sample_market_data, binance_state_dict)
         
         # Verificar normalización de equity
         equity_norm = observacion["portfolio"][0]
-        expected_equity_norm = binance_state_dict["equity"] / 10000.0
+        expected_equity_norm = binance_state_dict["equity"] / equity_inicial
         assert equity_norm == pytest.approx(expected_equity_norm, rel=0.01)
         
-        # Verificar normalización de PnL
+        # Verificar normalización de PnL (10% del equity_inicial)
         pnl_norm = observacion["portfolio"][1]
-        expected_pnl_norm = binance_state_dict["pnl_no_realizado"] / 1000.0
+        expected_pnl_norm = binance_state_dict["pnl_no_realizado"] / (equity_inicial * 0.1)
         assert pnl_norm == pytest.approx(expected_pnl_norm, rel=0.01)
         
         # Verificar posición abierta (0 o 1, no normalizada)
@@ -118,7 +132,8 @@ class TestObservacionBuilder:
         )
         config.scaler = fitted_scaler
         
-        builder = ObservacionBuilder(config, fitted_scaler)
+        equity_inicial = 10000.0
+        builder = ObservacionBuilder(config, fitted_scaler, equity_inicial)
         
         observacion = builder.construir_observacion(sample_market_data, binance_state_dict)
         
@@ -128,7 +143,8 @@ class TestObservacionBuilder:
         
     def test_construir_observacion_posicion_abierta_true(self, production_config, fitted_scaler, sample_market_data):
         """Test con posición abierta."""
-        builder = ObservacionBuilder(production_config, fitted_scaler)
+        equity_inicial = 10000.0
+        builder = ObservacionBuilder(production_config, fitted_scaler, equity_inicial)
         
         binance_state = {
             "equity": 10500.0,
@@ -143,7 +159,8 @@ class TestObservacionBuilder:
         
     def test_construir_observacion_posicion_abierta_false(self, production_config, fitted_scaler, sample_market_data):
         """Test con posición cerrada."""
-        builder = ObservacionBuilder(production_config, fitted_scaler)
+        equity_inicial = 10000.0
+        builder = ObservacionBuilder(production_config, fitted_scaler, equity_inicial)
         
         binance_state = {
             "equity": 10500.0,
@@ -158,7 +175,8 @@ class TestObservacionBuilder:
         
     def test_construir_observacion_elimina_timestamp(self, production_config, fitted_scaler, sample_market_data, binance_state_dict):
         """Test que se elimina la columna timestamp si existe."""
-        builder = ObservacionBuilder(production_config, fitted_scaler)
+        equity_inicial = 10000.0
+        builder = ObservacionBuilder(production_config, fitted_scaler, equity_inicial)
         
         # Agregar columna timestamp
         df_with_timestamp = sample_market_data.reset_index()
@@ -171,7 +189,8 @@ class TestObservacionBuilder:
         
     def test_construir_observacion_valores_por_defecto(self, production_config, fitted_scaler, sample_market_data):
         """Test con valores por defecto en binance_state."""
-        builder = ObservacionBuilder(production_config, fitted_scaler)
+        equity_inicial = 10000.0
+        builder = ObservacionBuilder(production_config, fitted_scaler, equity_inicial)
         
         # Estado incompleto
         binance_state = {}
@@ -202,7 +221,8 @@ class TestObservacionBuilderEdgeCases:
     
     def test_equity_negativo(self, production_config, fitted_scaler, sample_market_data):
         """Test con equity negativo."""
-        builder = ObservacionBuilder(production_config, fitted_scaler)
+        equity_inicial = 10000.0
+        builder = ObservacionBuilder(production_config, fitted_scaler, equity_inicial)
         
         binance_state = {
             "equity": -500.0,  # Equity negativo
@@ -218,7 +238,8 @@ class TestObservacionBuilderEdgeCases:
         
     def test_pnl_muy_grande(self, production_config, fitted_scaler, sample_market_data):
         """Test con PnL muy grande."""
-        builder = ObservacionBuilder(production_config, fitted_scaler)
+        equity_inicial = 10000.0
+        builder = ObservacionBuilder(production_config, fitted_scaler, equity_inicial)
         
         binance_state = {
             "equity": 50000.0,
@@ -234,7 +255,8 @@ class TestObservacionBuilderEdgeCases:
         
     def test_ventana_exactamente_window_size(self, production_config, fitted_scaler, binance_state_dict):
         """Test con ventana del tamaño exacto."""
-        builder = ObservacionBuilder(production_config, fitted_scaler)
+        equity_inicial = 10000.0
+        builder = ObservacionBuilder(production_config, fitted_scaler, equity_inicial)
         
         # DataFrame con exactamente window_size filas
         df_exact = pd.DataFrame(

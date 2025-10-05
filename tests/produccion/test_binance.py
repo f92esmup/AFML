@@ -48,6 +48,51 @@ class TestBinanceConnector:
         # No debe lanzar excepción, solo loggear
         connector = BinanceConnector(mock_binance_client, production_config)
         assert connector is not None
+    
+    def test_initialize_account_success(self, mock_binance_client, production_config):
+        """Test de inicialización exitosa de la cuenta."""
+        connector = BinanceConnector(mock_binance_client, production_config)
+        
+        # Ejecutar initialize_account
+        success = connector.initialize_account()
+        
+        assert success is True
+        assert connector.equity_inicial == 10000.0
+        assert connector.balance_inicial == 10000.0
+        assert connector._max_equity == 10000.0
+        
+    def test_initialize_account_with_existing_position(self, mock_binance_client, production_config):
+        """Test de inicialización con posición existente."""
+        # Mock con posición abierta
+        mock_binance_client.futures_position_information.return_value = [
+            {
+                "symbol": "BTCUSDT",
+                "positionAmt": "0.5",
+                "entryPrice": "50000.0",
+                "unRealizedProfit": "100.0"
+            }
+        ]
+        
+        connector = BinanceConnector(mock_binance_client, production_config)
+        success = connector.initialize_account()
+        
+        assert success is True
+        # Debe advertir pero permitir continuar
+        assert connector.equity_inicial > 0
+    
+    def test_initialize_account_failure(self, mock_binance_client, production_config):
+        """Test de fallo en inicialización de cuenta."""
+        connector = BinanceConnector(mock_binance_client, production_config)
+        
+        # Simular error en get_account_info
+        mock_binance_client.futures_account.side_effect = BinanceAPIException(
+            Mock(), 400, "API Error"
+        )
+        
+        success = connector.initialize_account()
+        
+        assert success is False
+        assert connector.equity_inicial == 0.0
         
     def test_create_order_market_buy(self, mock_binance_client, production_config):
         """Test de creación de orden MARKET BUY."""

@@ -17,27 +17,45 @@ log = logging.getLogger("AFML.Observacion")
 class ObservacionBuilder:
     """Construye observaciones normalizadas para el agente SAC."""
     
-    def __init__(self, config: ProductionConfig, scaler: StandardScaler) -> None:
+    def __init__(
+        self, 
+        config: ProductionConfig, 
+        scaler: StandardScaler,
+        equity_inicial: float
+    ) -> None:
         """
         Inicializa el constructor de observaciones.
+        
+        IMPORTANTE: equity_inicial debe obtenerse de BinanceConnector.equity_inicial
+        después de llamar a initialize_account(), NO del archivo de configuración.
         
         Args:
             config: Configuración de producción
             scaler: StandardScaler entrenado para normalizar datos de mercado
+            equity_inicial: Equity inicial REAL obtenido de Binance API
         """
         self.config = config
         self.scaler = scaler
         self.window_size = config.window_size
         self.normalizar_portfolio = config.normalizar_portfolio
         
-        # Valores estáticos para normalización de portfolio (mismos que en entrenamiento)
-        # Estos valores son aproximados para escalar equity, PnL y posición
-        self.equity_scale = 10000.0  # Escala basada en capital inicial
-        self.pnl_scale = 1000.0      # Escala para PnL no realizado
+        # Validar que equity_inicial sea válido
+        if equity_inicial <= 0.0:
+            raise ValueError(
+                f"equity_inicial inválido: {equity_inicial}. "
+                "Debe obtenerse de BinanceConnector.equity_inicial después de initialize_account()"
+            )
+        
+        # Escalas DINÁMICAS basadas en valores REALES de la cuenta
+        # Esto garantiza que la normalización sea consistente con la situación real
+        self.equity_scale = equity_inicial  # Escala basada en equity REAL
+        self.pnl_scale = equity_inicial * 0.1  # 10% del equity como escala razonable para PnL
         
         log.info("✅ Constructor de observaciones inicializado")
         log.info(f"   Window size: {self.window_size}")
         log.info(f"   Normalización portfolio: {'SÍ' if self.normalizar_portfolio else 'NO'}")
+        log.info(f"   Equity scale (REAL): {self.equity_scale:.2f} USDT")
+        log.info(f"   PnL scale (REAL): {self.pnl_scale:.2f} USDT")
     
     def construir_observacion(
         self, 

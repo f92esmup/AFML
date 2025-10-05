@@ -79,7 +79,13 @@ async def main() -> None:
             testnet=not args.live
         )
         binance = BinanceConnector(cliente_binance, config)
-        log.info("✅ Conector de Binance inicializado")
+        log.info("✅ Conector de Binance creado")
+        
+        # CRÍTICO: Inicializar cuenta para obtener valores REALES
+        # Esto debe hacerse ANTES de crear ControlRiesgo y ObservacionBuilder
+        if not binance.initialize_account():
+            raise RuntimeError("❌ Error al inicializar cuenta de Binance")
+        log.info("✅ Cuenta de Binance inicializada con valores REALES")
         
         # DataProvider (asíncrono para WebSocket)
         if config.scaler is None:
@@ -89,15 +95,19 @@ async def main() -> None:
         await data_provider.inicializar(api_key, api_secret, testnet=not args.live)
         log.info("✅ DataProvider inicializado")
         
-        # Constructor de observaciones
-        observacion_builder = ObservacionBuilder(config, config.scaler)
+        # Constructor de observaciones (usa equity REAL de Binance)
+        observacion_builder = ObservacionBuilder(
+            config, 
+            config.scaler, 
+            binance.equity_inicial  # Valor REAL obtenido de Binance
+        )
         log.info("✅ Constructor de observaciones inicializado")
         
         # Agente SAC
         agente = AgenteProduccion(config)
         log.info("✅ Agente SAC cargado")
         
-        # Control de riesgo
+        # Control de riesgo (usa equity REAL de Binance)
         control_riesgo = ControlRiesgo(config, binance)
         log.info("✅ Control de riesgo inicializado")
         

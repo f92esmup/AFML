@@ -36,6 +36,10 @@ class BinanceConnector:
         
         # Tracking de equity máximo para cálculo de drawdown
         self._max_equity: float = 0.0
+        
+        # Valores iniciales REALES de la cuenta (se obtienen en initialize_account)
+        self._equity_inicial: float = 0.0
+        self._balance_inicial: float = 0.0
 
         # Configurar apalancamiento al inicializar
         self._setup_leverage()
@@ -53,6 +57,44 @@ class BinanceConnector:
             # Solo loguear el error, no re-lanzar
             # El apalancamiento puede estar ya configurado desde otra sesión
             log.error(f"Error al configurar apalancamiento: {e}")
+    
+    def initialize_account(self) -> bool:
+        """
+        Inicializa la cuenta obteniendo los valores REALES iniciales de Binance.
+        DEBE llamarse ANTES de inicializar ControlRiesgo y ObservacionBuilder.
+        
+        Returns:
+            True si la inicialización fue exitosa, False en caso contrario
+        """
+        try:
+            log.info("Inicializando cuenta desde Binance API...")
+            
+            # Obtener información de cuenta
+            success = self.get_account_info()
+            if not success:
+                log.error("❌ Error al obtener información inicial de la cuenta")
+                return False
+            
+            # Guardar valores iniciales REALES
+            self._equity_inicial = self._equity
+            self._balance_inicial = self._balance
+            self._max_equity = self._equity  # Inicializar max_equity con equity real
+            
+            log.info("✅ Cuenta inicializada correctamente")
+            log.info(f"   Balance inicial: {self._balance_inicial:.2f} USDT")
+            log.info(f"   Equity inicial: {self._equity_inicial:.2f} USDT")
+            log.info(f"   Posición abierta: {'SÍ' if self._posicion_abierta else 'NO'}")
+            
+            # Advertencia si ya hay posiciones abiertas
+            if self._posicion_abierta:
+                log.warning("⚠️  ADVERTENCIA: Ya existe una posición abierta al iniciar")
+                log.warning(f"   El sistema continuará gestionando esta posición")
+            
+            return True
+            
+        except Exception as e:
+            log.error(f"❌ Error crítico al inicializar cuenta: {e}")
+            return False
 
     def create_order(
         self,
@@ -181,6 +223,16 @@ class BinanceConnector:
     def apalancamiento(self) -> float:
         """Nivel de apalancamiento configurado"""
         return self._config.apalancamiento
+    
+    @property
+    def equity_inicial(self) -> float:
+        """Equity inicial REAL obtenido de Binance al iniciar"""
+        return self._equity_inicial
+    
+    @property
+    def balance_inicial(self) -> float:
+        """Balance inicial REAL obtenido de Binance al iniciar"""
+        return self._balance_inicial
     
     def get_position_info(self) -> Dict[str, Any]:
         """

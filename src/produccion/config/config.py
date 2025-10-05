@@ -37,10 +37,11 @@ class ProductionConfig(BaseModel):
     umbral_mantener_posicion: float = Field(..., description="Umbral para mantener posición")
     normalizar_portfolio: bool = Field(..., description="Si normalizar observación de portfolio")
     
-    # Parámetros del portfolio
-    capital_inicial: float = Field(..., description="Capital inicial del portfolio")
-    comision: float = Field(..., description="Comisión por operación")
-    slippage: float = Field(..., description="Slippage estimado")
+    # Parámetros del portfolio (simulación - NO usar para valores reales)
+    # IMPORTANTE: capital_inicial NO se carga aquí porque debe obtenerse de Binance API
+    # Los valores de comisión y slippage son solo referenciales del entrenamiento
+    comision: float = Field(..., description="Comisión por operación (referencial)")
+    slippage: float = Field(..., description="Slippage estimado (referencial)")
     
     # Parámetros de indicadores (necesarios para DataProvider)
     sma_short: int = Field(..., description="Período de SMA corto")
@@ -95,7 +96,8 @@ class ProductionConfig(BaseModel):
                 "normalizar_portfolio": yaml_data["entorno"]["normalizar_portfolio"],
                 
                 # Portfolio
-                "capital_inicial": yaml_data["portafolio"]["capital_inicial"],
+                # NOTA: capital_inicial NO se carga porque debe obtenerse de Binance API
+                # Solo se cargan valores referenciales de comisión y slippage
                 "comision": yaml_data["portafolio"]["comision"],
                 "slippage": yaml_data["portafolio"]["slippage"],
                 

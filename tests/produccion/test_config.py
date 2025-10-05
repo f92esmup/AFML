@@ -166,7 +166,7 @@ class TestProductionConfigValidation:
                 max_drawdown_permitido=0.2,
                 umbral_mantener_posicion=0.1,
                 normalizar_portfolio=True,
-                capital_inicial=10000.0,
+                # capital_inicial ya no es parte de ProductionConfig
                 comision=0.001,
                 slippage=0.0005,
                 sma_short=10,
@@ -190,10 +190,11 @@ class TestProductionConfigValidation:
         config = ProductionConfig.load_config(args)
         
         # Verificar campos críticos
+        # NOTA: capital_inicial NO se incluye porque debe obtenerse de Binance API
         required_fields = [
             "apalancamiento", "intervalo", "simbolo", "window_size",
             "max_drawdown_permitido", "umbral_mantener_posicion",
-            "capital_inicial", "comision", "slippage",
+            "comision", "slippage",  # capital_inicial removido
             "sma_short", "sma_long", "rsi_length",
             "macd_fast", "macd_slow", "macd_signal",
             "bbands_length", "bbands_std"

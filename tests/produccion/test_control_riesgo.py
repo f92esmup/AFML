@@ -24,19 +24,53 @@ class TestControlRiesgo:
         return config
     
     @pytest.fixture
-    def mock_binance(self, mock_binance_client, production_config):
-        """Fixture del conector Binance."""
-        return BinanceConnector(mock_binance_client, production_config)
+    def mock_binance(self, mock_binance_connector):
+        """Fixture del conector Binance ya inicializado."""
+        return mock_binance_connector
     
     def test_init(self, production_config, mock_binance):
         """Test de inicialización del ControlRiesgo."""
         control = ControlRiesgo(production_config, mock_binance)
         
         assert control.max_drawdown == 0.2
-        assert control.capital_inicial == 10000.0
+        # max_equity_alcanzado se obtiene de binance.equity_inicial
         assert control.max_equity_alcanzado == 10000.0
         assert control.emergencia_activa is False
         assert control.razon_emergencia is None
+    
+    def test_init_binance_no_inicializado(self, production_config, mock_binance_client):
+        """Test que falla si Binance no está inicializado."""
+        # Crear binance sin inicializar
+        config = ProductionConfig(
+            **{
+                "apalancamiento": 2.0,
+                "intervalo": "1h",
+                "simbolo": "BTCUSDT",
+                "comision": 0.001,
+                "slippage": 0.0005,
+                "window_size": 30,
+                "max_drawdown_permitido": 0.2,
+                "umbral_mantener_posicion": 0.1,
+                "normalizar_portfolio": True,
+                "sma_short": 10,
+                "sma_long": 200,
+                "rsi_length": 14,
+                "macd_fast": 12,
+                "macd_slow": 26,
+                "macd_signal": 9,
+                "bbands_length": 20,
+                "bbands_std": 2.0,
+            },
+            train_id="test_train",
+            model_path="/path/to/model",
+            scaler_path="/path/to/scaler",
+            is_live=False
+        )
+        binance_no_init = BinanceConnector(mock_binance_client, config)
+        
+        # No debería permitir crear ControlRiesgo sin initialize_account()
+        with pytest.raises(ValueError, match="BinanceConnector no inicializado"):
+            ControlRiesgo(production_config, binance_no_init)
         
     def test_verificar_drawdown_sin_drawdown(self, production_config, mock_binance):
         """Test de verificación de drawdown cuando no hay drawdown."""
@@ -131,10 +165,9 @@ class TestValidarAccion:
         return config
     
     @pytest.fixture
-    def mock_binance(self, mock_binance_client, production_config):
-        """Fixture del conector Binance."""
-        from src.produccion.binance import BinanceConnector
-        return BinanceConnector(mock_binance_client, production_config)
+    def mock_binance(self, mock_binance_connector):
+        """Fixture del conector Binance ya inicializado."""
+        return mock_binance_connector
     
     @pytest.fixture
     def control(self, production_config, mock_binance):
@@ -240,10 +273,9 @@ class TestProtocoloEmergencia:
         return config
     
     @pytest.fixture
-    def mock_binance(self, mock_binance_client, production_config):
-        """Fixture del conector Binance."""
-        from src.produccion.binance import BinanceConnector
-        return BinanceConnector(mock_binance_client, production_config)
+    def mock_binance(self, mock_binance_connector):
+        """Fixture del conector Binance ya inicializado."""
+        return mock_binance_connector
     
     @pytest.fixture
     def control(self, production_config, mock_binance):
@@ -337,10 +369,9 @@ class TestControlRiesgoEdgeCases:
         return config
     
     @pytest.fixture
-    def mock_binance(self, mock_binance_client, production_config):
-        """Fixture del conector Binance."""
-        from src.produccion.binance import BinanceConnector
-        return BinanceConnector(mock_binance_client, production_config)
+    def mock_binance(self, mock_binance_connector):
+        """Fixture del conector Binance ya inicializado."""
+        return mock_binance_connector
     
     def test_drawdown_con_equity_cero(self, production_config, mock_binance):
         """Test de drawdown cuando equity es cero."""
