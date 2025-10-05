@@ -121,10 +121,16 @@ class BinanceConnector:
 
         Returns:
             Diccionario con la respuesta de la API de Binance o None en caso de error
-
-        Raises:
-            BinanceAPIException: Error en la API de Binance
         """
+        # Errores de API que NO deben reintentarse (son permanentes/lógicos)
+        ERRORES_NO_RECUPERABLES = {
+            -2019,  # Margen insuficiente
+            -1100,  # Parámetros inválidos
+            -2015,  # Permisos insuficientes
+            -1111,  # Precisión inválida
+            -2021,  # Orden inmediatamente ejecutable
+        }
+        
         max_retries = 3
         base_delay = 1  # segundos (más corto para órdenes)
         
@@ -151,6 +157,7 @@ class BinanceConnector:
                 return orden
 
             except (ReadTimeout, ConnectionError, Timeout) as e:
+                # Errores de RED - SÍ reintentar
                 attempt_num = attempt + 1
                 if attempt_num < max_retries:
                     delay = base_delay * (2 ** attempt)
@@ -166,11 +173,26 @@ class BinanceConnector:
                     return None
                     
             except BinanceAPIException as e:
-                log.error(f"Error al crear la orden: {e}")
-                # No re-lanzar, retornar None para que el llamador maneje el error
-                return None
+                # Verificar si es un error no recuperable
+                if e.code in ERRORES_NO_RECUPERABLES:
+                    log.error(f"❌ Error NO recuperable al crear orden (código {e.code}): {e.message}")
+                    return None  # No reintentar, fallo definitivo
+                else:
+                    # Error recuperable - reintentar
+                    attempt_num = attempt + 1
+                    if attempt_num < max_retries:
+                        delay = base_delay * (2 ** attempt)
+                        log.warning(
+                            f"⚠️ Error de API al crear orden (intento {attempt_num}/{max_retries}, código {e.code}). "
+                            f"Reintentando en {delay}s..."
+                        )
+                        time.sleep(delay)
+                    else:
+                        log.error(f"❌ Error de API tras {max_retries} intentos: {e}")
+                        return None
+                        
             except Exception as e:
-                log.error(f"Error inesperado al crear orden: {e}")
+                log.error(f"❌ Error inesperado al crear orden: {e}")
                 return None
         
         return None

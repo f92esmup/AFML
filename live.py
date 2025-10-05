@@ -263,9 +263,14 @@ async def main() -> None:
             if accion_interpretada['debe_ejecutar']:
                 valida, razon = control_riesgo.validar_accion_pre(accion_interpretada)
                 if not valida:
-                    log.warning(f"⚠️  Acción rechazada: {razon}")
+                    log.warning(f"⚠️  Acción rechazada por control de riesgo: {razon}")
                     # Registrar paso sin operación
-                    resultado = {'tipo_accion': 'rechazada', 'resultado': False, 'error': razon}
+                    resultado = {
+                        'tipo_accion': 'rechazada',
+                        'operacion': accion_interpretada['operacion'],
+                        'resultado': False,
+                        'error': razon
+                    }
                 else:
                     # ----------------------------------------------------------------
                     # F. EJECUCIÓN DE LA OPERACIÓN
@@ -276,18 +281,37 @@ async def main() -> None:
                             accion_interpretada, 
                             nueva_vela['close']
                         )
-                        log.info(f"✅ Operación ejecutada: {resultado}")
+                        
+                        # Logging diferenciado según resultado
+                        if resultado['resultado']:
+                            log.info(f"✅ Operación EXITOSA: {resultado['operacion']} | "
+                                   f"Trade ID: {resultado.get('trade_id', 'N/A')} | "
+                                   f"Cantidad: {resultado.get('cantidad', 0):.3f}")
+                        else:
+                            log.warning(f"❌ Operación FALLÓ: {resultado['operacion']} | "
+                                      f"Error: {resultado.get('error', 'Desconocido')}")
+                            
                     except Exception as e:
-                        log.error(f"Error al ejecutar operación: {e}")
-                        resultado = {'tipo_accion': accion_interpretada['tipo_accion'], 
-                                   'resultado': False, 'error': str(e)}
+                        log.error(f"❌ Excepción inesperada al ejecutar operación: {e}")
+                        resultado = {
+                            'tipo_accion': accion_interpretada['tipo_accion'],
+                            'operacion': accion_interpretada['operacion'],
+                            'resultado': False,
+                            'error': str(e)
+                        }
             else:
                 # No hay operación que ejecutar
-                resultado = {'tipo_accion': 'mantener', 'resultado': True}
+                resultado = {
+                    'tipo_accion': 'mantener',
+                    'operacion': 'mantener',
+                    'resultado': True
+                }
             
             # ----------------------------------------------------------------
             # G. ACTUALIZAR ESTADO POST-EJECUCIÓN
             # ----------------------------------------------------------------
+            # NOTA: Siempre actualizamos para tener el estado REAL de Binance
+            # Esto es necesario incluso si la operación falló
             binance.get_account_info()
             binance_state_final = binance.get_position_info()
             
@@ -370,7 +394,7 @@ def ejecutar_operacion(
 ) -> Dict[str, Any]:
     """
     Ejecuta la operación en Binance basada en la acción interpretada.
-    Incluye sistema de reintentos.
+    Verifica el estado real antes y después para confirmar la ejecución.
     
     Args:
         binance: Conector de Binance
@@ -380,98 +404,125 @@ def ejecutar_operacion(
     Returns:
         Diccionario con el resultado de la operación
     """
-    max_intentos = 3
     operacion = accion_interpretada['operacion']
     intensidad = accion_interpretada['intensidad']
-    order = None  # Inicializar para evitar warning
     
-    for intento in range(max_intentos):
-        try:
-            # Calcular tamaño de posición
-            cantidad = binance.calculate_position_size(
-                action=intensidad if accion_interpretada['tipo_accion'] == 'long' else -intensidad,
-                precio_actual=precio
-            )
-            
-            if cantidad == 0:
-                return {
-                    'tipo_accion': accion_interpretada['tipo_accion'],
-                    'operacion': operacion,
-                    'resultado': False,
-                    'error': 'Cantidad calculada es 0'
-                }
-            
-            # Ejecutar según el tipo de operación
-            if 'abrir_long' in operacion or 'aumentar_long' in operacion:
-                order = binance.create_order(
-                    symbol=binance.simbolo,
-                    side='BUY',
-                    quantity=cantidad,
-                    order_type='MARKET'
-                )
-                
-            elif 'abrir_short' in operacion or 'aumentar_short' in operacion:
-                order = binance.create_order(
-                    symbol=binance.simbolo,
-                    side='SELL',
-                    quantity=cantidad,
-                    order_type='MARKET'
-                )
-                
-            elif 'cerrar' in operacion:
-                # Primero cerrar la posición actual
-                posicion_info = binance.get_position_info()
-                if posicion_info['posicion_abierta']:
-                    side_cierre = 'SELL' if posicion_info['tipo_posicion_activa'] == 'LONG' else 'BUY'
-                    order = binance.create_order(
-                        symbol=binance.simbolo,
-                        side=side_cierre,
-                        quantity=posicion_info['cantidad_activa'],
-                        order_type='MARKET',
-                        reduce_only=True
-                    )
-                    
-                    # Si es cerrar_y_abrir, abrir nueva posición
-                    if 'abrir' in operacion:
-                        side_nueva = 'BUY' if 'long' in operacion else 'SELL'
-                        order = binance.create_order(
-                            symbol=binance.simbolo,
-                            side=side_nueva,
-                            quantity=cantidad,
-                            order_type='MARKET'
-                        )
-            
-            # Operación exitosa
+    # Capturar estado ANTES de intentar ejecutar
+    estado_previo = binance.get_position_info()
+    
+    try:
+        # Calcular tamaño de posición
+        cantidad = binance.calculate_position_size(
+            action=intensidad if accion_interpretada['tipo_accion'] == 'long' else -intensidad,
+            precio_actual=precio
+        )
+        
+        if cantidad == 0:
             return {
                 'tipo_accion': accion_interpretada['tipo_accion'],
                 'operacion': operacion,
-                'resultado': True,
-                'trade_id': order.get('orderId') if order else None,
+                'resultado': False,
+                'error': 'Cantidad calculada es 0'
+            }
+        
+        order = None
+        
+        # Ejecutar según el tipo de operación
+        if 'abrir_long' in operacion or 'aumentar_long' in operacion:
+            order = binance.create_order(
+                symbol=binance.simbolo,
+                side='BUY',
+                quantity=cantidad,
+                order_type='MARKET'
+            )
+            
+        elif 'abrir_short' in operacion or 'aumentar_short' in operacion:
+            order = binance.create_order(
+                symbol=binance.simbolo,
+                side='SELL',
+                quantity=cantidad,
+                order_type='MARKET'
+            )
+            
+        elif 'cerrar' in operacion:
+            # Primero cerrar la posición actual
+            posicion_info = binance.get_position_info()
+            if posicion_info['posicion_abierta']:
+                side_cierre = 'SELL' if posicion_info['tipo_posicion_activa'] == 'LONG' else 'BUY'
+                order = binance.create_order(
+                    symbol=binance.simbolo,
+                    side=side_cierre,
+                    quantity=posicion_info['cantidad_activa'],
+                    order_type='MARKET',
+                    reduce_only=True
+                )
+                
+                # Si es cerrar_y_abrir, abrir nueva posición
+                if 'abrir' in operacion:
+                    side_nueva = 'BUY' if 'long' in operacion else 'SELL'
+                    order = binance.create_order(
+                        symbol=binance.simbolo,
+                        side=side_nueva,
+                        quantity=cantidad,
+                        order_type='MARKET'
+                    )
+        
+        # VERIFICACIÓN CRÍTICA: ¿La orden se creó?
+        if order is None:
+            # La API retornó None - la operación FALLÓ
+            return {
+                'tipo_accion': accion_interpretada['tipo_accion'],
+                'operacion': operacion,
+                'resultado': False,
+                'error': 'create_order retornó None - Operación no ejecutada en Binance',
+                'trade_id': None,
                 'cantidad': cantidad,
                 'precio_entrada': precio,
             }
-            
-        except Exception as e:
-            if intento < max_intentos - 1:
-                log.warning(f"Intento {intento + 1} falló: {e}. Reintentando...")
-                import time
-                time.sleep(1)  # Usar time.sleep en lugar de asyncio.sleep
-            else:
-                log.error(f"Error tras {max_intentos} intentos: {e}")
-                return {
-                    'tipo_accion': accion_interpretada['tipo_accion'],
-                    'operacion': operacion,
-                    'resultado': False,
-                    'error': str(e)
-                }
-    
-    # Por si acaso no retorna en ningún caso anterior
-    return {
-        'tipo_accion': accion_interpretada['tipo_accion'],
-        'operacion': operacion,
-        'resultado': False,
-        'error': 'Error desconocido en ejecución'
-    }
+        
+        # Actualizar estado DESPUÉS de la operación
+        binance.get_account_info()
+        estado_posterior = binance.get_position_info()
+        
+        # VERIFICACIÓN ADICIONAL: Comparar estados para confirmar cambio
+        cambio_detectado = False
+        if 'abrir' in operacion or 'aumentar' in operacion:
+            # Debería haber aumentado la cantidad
+            if estado_posterior['cantidad_activa'] > estado_previo.get('cantidad_activa', 0):
+                cambio_detectado = True
+        elif 'cerrar' in operacion:
+            # Debería haber cerrado o cambiado
+            if not estado_posterior['posicion_abierta'] or estado_posterior['cantidad_activa'] != estado_previo.get('cantidad_activa', 0):
+                cambio_detectado = True
+        
+        # Si tenemos trade_id pero no detectamos cambio, loguear advertencia
+        if not cambio_detectado and order.get('orderId'):
+            log.warning(
+                f"⚠️ Orden {order['orderId']} reportada como exitosa pero no se detectó cambio en posición. "
+                f"Cantidad previa: {estado_previo.get('cantidad_activa', 0)}, "
+                f"Cantidad posterior: {estado_posterior['cantidad_activa']}"
+            )
+        
+        # Operación exitosa
+        return {
+            'tipo_accion': accion_interpretada['tipo_accion'],
+            'operacion': operacion,
+            'resultado': True,
+            'trade_id': order.get('orderId'),
+            'cantidad': cantidad,
+            'precio_entrada': precio,
+            'cambio_verificado': cambio_detectado
+        }
+        
+    except Exception as e:
+        log.error(f"❌ Excepción al ejecutar operación: {e}")
+        return {
+            'tipo_accion': accion_interpretada['tipo_accion'],
+            'operacion': operacion,
+            'resultado': False,
+            'error': str(e),
+            'trade_id': None
+        }
 
 
 def construir_info_dict(
