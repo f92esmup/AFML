@@ -9,6 +9,7 @@ import numpy as np
 from stable_baselines3 import SAC
 
 from src.produccion.config.config import ProductionConfig
+from src.utils.device import get_device
 
 log = logging.getLogger("AFML.AgenteProduccion")
 
@@ -26,11 +27,15 @@ class AgenteProduccion:
         self.config = config
         self.umbral_mantener = config.umbral_mantener_posicion
         
+        # Detectar dispositivo óptimo (GPU si está disponible, CPU como fallback)
+        self.device: str = get_device()
+        
         # Cargar modelo entrenado
         log.info(f"Cargando modelo desde: {config.model_path}")
         try:
-            self.model = SAC.load(config.model_path)
+            self.model = SAC.load(config.model_path, device=self.device)
             log.info("✅ Modelo SAC cargado exitosamente")
+            log.info(f"✅ Modelo configurado para inferencia en: {self.device.upper()}")
         except Exception as e:
             log.error(f"Error al cargar el modelo: {e}")
             raise

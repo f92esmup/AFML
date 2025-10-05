@@ -14,6 +14,8 @@ import numpy as np
 if TYPE_CHECKING:
     from src.train.config.config import UnifiedConfig
 
+from src.utils.device import get_device
+
 # Configurar logger
 log: logging.Logger = logging.getLogger("AFML.agente")
 
@@ -35,7 +37,11 @@ class AgenteSac:
             self.tensorboard_log: str = config.Output.tensorboard_log
             self.total_timesteps: int = total_timesteps
             
+            # Detectar dispositivo óptimo (GPU si está disponible, CPU como fallback)
+            self.device: str = get_device()
+            
             log.info(f"Agente SAC inicializado correctamente con {total_timesteps} timesteps totales")
+            log.info(f"Dispositivo seleccionado para entrenamiento: {self.device.upper()}")
             log.debug(f"Ruta del modelo: {self.model_path}")
             log.debug(f"Ruta de tensorboard: {self.tensorboard_log}")
             
@@ -111,9 +117,12 @@ class AgenteSac:
                 # --- Reproducibilidad y monitorización ---
                 verbose=sac_config.verbose,
                 seed=sac_config.seed,
+                # --- Dispositivo (GPU/CPU) ---
+                device=self.device,
             )
             
             log.info("Modelo SAC creado exitosamente.")
+            log.info(f"✅ Modelo configurado para entrenar en: {self.device.upper()}")
             log.debug(f"Configuración del modelo: learning_rate={sac_config.learning_rate}, "
                      f"buffer_size={sac_config.buffer_size}, batch_size={sac_config.batch_size}")
             
