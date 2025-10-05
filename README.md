@@ -150,3 +150,54 @@ Reemplaza `<container_id>` con el ID del contenedor, que puedes obtener con:
 ```bash
 docker ps
 ```
+
+---
+
+## Ejecución en Producción (Live Trading)
+
+El sistema también puede ejecutarse en modo producción para trading en vivo usando un modelo previamente entrenado.
+
+### 1. Construir la imagen de producción
+
+```bash
+docker build -f Dockerfile.live -t afml:live .
+```
+
+### 2. Ejecutar en modo producción (TESTNET)
+
+```bash
+docker run --rm -d \
+  -v $(pwd)/entrenamientos:/app/entrenamientos \
+  -e BINANCE_TESTNET_API_KEY='tu_api_key_testnet' \
+  -e BINANCE_TESTNET_API_SECRET='tu_api_secret_testnet' \
+  afml:live \
+  --train-id train_BTCUSDT_20230101_20250101_lr3e-4_bs256_ws30_20251004_174919
+```
+
+**Explicación:**
+
+- `-v $(pwd)/entrenamientos:/app/entrenamientos`: Monta el directorio de entrenamientos para acceder al modelo
+- `-e BINANCE_TESTNET_API_KEY`: Variable de entorno con tu API key de testnet
+- `-e BINANCE_TESTNET_API_SECRET`: Variable de entorno con tu API secret de testnet
+- `--train-id`: ID del entrenamiento que contiene el modelo a usar
+
+**⚠️ IMPORTANTE:**
+
+- Por defecto ejecuta en **TESTNET** (simulación segura)
+- Para usar en producción real, añade el flag `--live` y usa las variables `BINANCE_API_KEY` y `BINANCE_API_SECRET`
+- **NUNCA** expongas tus API keys en el código. Usa siempre variables de entorno
+
+### 3. Monitorear logs de producción
+
+```bash
+docker logs -f <container_id>
+```
+
+Los logs y registros de operaciones se guardarán en:
+
+```text
+entrenamientos/<train_id>/produccion/
+├── produccion_<timestamp>.log     # Log completo de la sesión
+├── registro_<timestamp>.csv       # Registro de todas las operaciones
+└── emergencias_<timestamp>.csv    # Registro de eventos de emergencia
+```

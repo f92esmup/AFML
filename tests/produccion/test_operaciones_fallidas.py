@@ -27,10 +27,18 @@ class TestOperacionesFallidas:
         """Test que error -2019 (margen insuficiente) NO se reintenta."""
         connector = BinanceConnector(mock_binance_client, production_config)
         
-        # Simular error -2019
-        mock_binance_client.futures_create_order.side_effect = BinanceAPIException(
-            Mock(), -2019, "Margin is insufficient."
-        )
+        # Crear un mock de respuesta adecuado
+        mock_response = Mock()
+        mock_response.status_code = 400
+        mock_response.text = '{"code":-2019,"msg":"Margin is insufficient."}'
+        
+        # Crear excepción con código correcto
+        exc = BinanceAPIException(mock_response, 400, '{"code":-2019,"msg":"Margin is insufficient."}')
+        # Forzar el código (BinanceAPIException lo parsea del JSON)
+        exc.code = -2019
+        exc.message = "Margin is insufficient."
+        
+        mock_binance_client.futures_create_order.side_effect = exc
         
         result = connector.create_order(
             symbol="BTCUSDT",
@@ -47,10 +55,16 @@ class TestOperacionesFallidas:
         """Test que errores recuperables SÍ se reintentan."""
         connector = BinanceConnector(mock_binance_client, production_config)
         
-        # Simular error recuperable (código que NO está en lista de no-recuperables)
-        mock_binance_client.futures_create_order.side_effect = BinanceAPIException(
-            Mock(), -1001, "Server error"  # Error genérico
-        )
+        # Crear mock de respuesta con código recuperable
+        mock_response = Mock()
+        mock_response.status_code = 500
+        mock_response.text = '{"code":-1001,"msg":"Server error"}'
+        
+        exc = BinanceAPIException(mock_response, 500, '{"code":-1001,"msg":"Server error"}')
+        exc.code = -1001  # Error genérico (NO está en lista de no-recuperables)
+        exc.message = "Server error"
+        
+        mock_binance_client.futures_create_order.side_effect = exc
         
         result = connector.create_order(
             symbol="BTCUSDT",
@@ -67,9 +81,16 @@ class TestOperacionesFallidas:
         """Test que error -1100 (parámetros inválidos) NO se reintenta."""
         connector = BinanceConnector(mock_binance_client, production_config)
         
-        mock_binance_client.futures_create_order.side_effect = BinanceAPIException(
-            Mock(), -1100, "Invalid parameters"
-        )
+        # Crear mock de respuesta adecuado
+        mock_response = Mock()
+        mock_response.status_code = 400
+        mock_response.text = '{"code":-1100,"msg":"Invalid parameters"}'
+        
+        exc = BinanceAPIException(mock_response, 400, '{"code":-1100,"msg":"Invalid parameters"}')
+        exc.code = -1100
+        exc.message = "Invalid parameters"
+        
+        mock_binance_client.futures_create_order.side_effect = exc
         
         result = connector.create_order(
             symbol="BTCUSDT",
@@ -84,9 +105,16 @@ class TestOperacionesFallidas:
         """Test que error -2015 (permisos insuficientes) NO se reintenta."""
         connector = BinanceConnector(mock_binance_client, production_config)
         
-        mock_binance_client.futures_create_order.side_effect = BinanceAPIException(
-            Mock(), -2015, "Invalid API-key, IP, or permissions for action"
-        )
+        # Crear mock de respuesta adecuado
+        mock_response = Mock()
+        mock_response.status_code = 403
+        mock_response.text = '{"code":-2015,"msg":"Invalid API-key, IP, or permissions for action"}'
+        
+        exc = BinanceAPIException(mock_response, 403, '{"code":-2015,"msg":"Invalid API-key"}')
+        exc.code = -2015
+        exc.message = "Invalid API-key, IP, or permissions for action"
+        
+        mock_binance_client.futures_create_order.side_effect = exc
         
         result = connector.create_order(
             symbol="BTCUSDT",
@@ -121,9 +149,18 @@ class TestOperacionesFallidas:
         """Test que orden exitosa tras reintentos retorna correctamente."""
         connector = BinanceConnector(mock_binance_client, production_config)
         
+        # Crear excepción para primer intento
+        mock_response = Mock()
+        mock_response.status_code = 500
+        mock_response.text = '{"code":-1001,"msg":"Server error"}'
+        
+        exc = BinanceAPIException(mock_response, 500, '{"code":-1001,"msg":"Server error"}')
+        exc.code = -1001
+        exc.message = "Server error"
+        
         # Primera vez falla, segunda exitosa
         mock_binance_client.futures_create_order.side_effect = [
-            BinanceAPIException(Mock(), -1001, "Server error"),
+            exc,
             {
                 'orderId': 12345,
                 'symbol': 'BTCUSDT',
