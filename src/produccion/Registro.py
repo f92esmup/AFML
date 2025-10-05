@@ -41,55 +41,40 @@ class RegistroProduccion:
         self.registro_path = self.base_dir / f"registro_{self.session_start}.csv"
         self.emergencia_path = self.base_dir / f"emergencias_{self.session_start}.csv"
         
-        # Campos del registro principal (estructura compatible con info_builder)
+        # Campos del registro principal (optimizados para producción)
+        # Se eliminaron campos heredados del entrenamiento que siempre eran None
         self.campos_principales = [
-            # ENTORNO
+            # ENTORNO (5 campos)
             'timestamp',
             'paso',
-            'episodio',
             'action',
             'precio',
-            'recompensa',
-            'terminated',
-            'truncated',
             'status',
             
-            # PORTAFOLIO
+            # PORTAFOLIO (9 campos)
             'balance',
             'equity',
             'max_drawdown',
-            'operaciones_total',
             'pnl_total',
             'posicion_abierta',
-            'trade_id_activo',
             'tipo_posicion_activa',
             'precio_entrada_activa',
             'cantidad_activa',
-            'velas_activa',
             'pnl_no_realizado',
             
-            # OPERACION
+            # OPERACION (7 campos)
             'tipo_accion',
             'operacion',
             'resultado',
             'error',
             'trade_id',
-            'tipo_posicion',
             'precio_entrada',
-            'precio_salida',
             'cantidad',
-            'cantidad_adicional',
-            'cantidad_total',
-            'cantidad_restante',
-            'cantidad_reducida',
-            'porcentaje_inversion',
-            'comision',
-            'slippage',
-            'margen',
-            'margen_liberado',
-            'pnl_realizado',
-            'pnl_parcial',
-            'velas_abiertas',
+            
+            # VERIFICACION (3 campos opcionales para detectar inconsistencias)
+            'cambio_verificado',
+            'equity_previa',
+            'equity_posterior',
         ]
         
         # Campos para registro de emergencias
@@ -159,36 +144,36 @@ class RegistroProduccion:
                 {
                     'entorno': {...},
                     'portafolio': {...},
-                    'operacion': {...}
+                    'operacion': {...},
+                    'verificacion': {...}  # Opcional
                 }
         """
         try:
             # Aplanar el diccionario anidado
             fila = {}
             
-            # Extraer datos del entorno
+            # Extraer datos del entorno (solo campos relevantes)
             if 'entorno' in info_dict:
-                for key in ['timestamp', 'paso', 'episodio', 'action', 'precio', 
-                           'recompensa', 'terminated', 'truncated', 'status']:
+                for key in ['timestamp', 'paso', 'action', 'precio', 'status']:
                     fila[key] = info_dict['entorno'].get(key)
             
-            # Extraer datos del portafolio
+            # Extraer datos del portafolio (solo campos útiles)
             if 'portafolio' in info_dict:
-                for key in ['balance', 'equity', 'max_drawdown', 'operaciones_total',
-                           'pnl_total', 'posicion_abierta', 'trade_id_activo',
-                           'tipo_posicion_activa', 'precio_entrada_activa',
-                           'cantidad_activa', 'velas_activa', 'pnl_no_realizado']:
+                for key in ['balance', 'equity', 'max_drawdown', 'pnl_total',
+                           'posicion_abierta', 'tipo_posicion_activa', 
+                           'precio_entrada_activa', 'cantidad_activa', 'pnl_no_realizado']:
                     fila[key] = info_dict['portafolio'].get(key)
             
-            # Extraer datos de la operación
+            # Extraer datos de la operación (solo lo que se usa)
             if 'operacion' in info_dict:
                 for key in ['tipo_accion', 'operacion', 'resultado', 'error',
-                           'trade_id', 'tipo_posicion', 'precio_entrada', 'precio_salida',
-                           'cantidad', 'cantidad_adicional', 'cantidad_total',
-                           'cantidad_restante', 'cantidad_reducida', 'porcentaje_inversion',
-                           'comision', 'slippage', 'margen', 'margen_liberado',
-                           'pnl_realizado', 'pnl_parcial', 'velas_abiertas']:
+                           'trade_id', 'precio_entrada', 'cantidad']:
                     fila[key] = info_dict['operacion'].get(key)
+            
+            # Extraer datos de verificación (opcionales)
+            if 'verificacion' in info_dict:
+                for key in ['cambio_verificado', 'equity_previa', 'equity_posterior']:
+                    fila[key] = info_dict['verificacion'].get(key)
             
             # Escribir fila
             with open(self.registro_path, 'a', newline='', encoding='utf-8') as f:

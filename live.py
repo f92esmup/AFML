@@ -8,7 +8,7 @@ import logging
 import os
 import sys
 from datetime import datetime
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from binance import Client
 from dotenv import load_dotenv
 
@@ -21,7 +21,6 @@ from src.produccion.observacion import ObservacionBuilder
 from src.produccion.agente_produccion import AgenteProduccion
 from src.produccion.control_riesgo import ControlRiesgo
 from src.produccion.Registro import RegistroProduccion
-from src.train.Entrenamiento.entorno.info_builder import build_info_dict
 
 # Cargar variables de entorno desde .env
 load_dotenv()
@@ -534,10 +533,14 @@ def construir_info_dict(
     accion: float,
     vela: Dict[str, Any],
     binance_state: Dict[str, Any],
-    resultado: Dict[str, Any]
+    resultado: Dict[str, Any],
+    equity_previa: Optional[float] = None
 ) -> Dict[str, Dict[str, Any]]:
     """
-    Construye el diccionario de información compatible con info_builder.
+    Construye el diccionario de información para el registro en producción.
+    
+    Versión optimizada: Solo incluye campos que realmente se usan en producción,
+    eliminando campos heredados del entrenamiento que siempre serían None.
     
     Args:
         paso: Número del paso actual
@@ -545,19 +548,16 @@ def construir_info_dict(
         vela: Información de la vela actual
         binance_state: Estado del portfolio de Binance
         resultado: Resultado de la operación
+        equity_previa: Equity antes de la operación (opcional, para verificación)
         
     Returns:
-        Diccionario estructurado según info_builder
+        Diccionario estructurado para el registro
     """
     entorno_info = {
-        'paso': paso,
-        'episodio': 0,  # En producción no hay episodios
         'timestamp': vela['timestamp'].isoformat(),
+        'paso': paso,
         'action': accion,
         'precio': vela['close'],
-        'recompensa': None,  # No calculamos recompensa en producción
-        'terminated': False,
-        'truncated': False,
         'status': 'running',
     }
     
@@ -565,14 +565,11 @@ def construir_info_dict(
         'balance': binance_state.get('balance'),
         'equity': binance_state.get('equity'),
         'max_drawdown': binance_state.get('max_drawdown'),
-        'operaciones_total': None,
         'pnl_total': binance_state.get('pnl_total'),
         'posicion_abierta': binance_state.get('posicion_abierta'),
-        'trade_id_activo': None,
         'tipo_posicion_activa': binance_state.get('tipo_posicion_activa'),
         'precio_entrada_activa': binance_state.get('precio_entrada_activa'),
         'cantidad_activa': binance_state.get('cantidad_activa'),
-        'velas_activa': None,
         'pnl_no_realizado': binance_state.get('pnl_no_realizado'),
     }
     
@@ -582,17 +579,29 @@ def construir_info_dict(
         'resultado': resultado.get('resultado'),
         'error': resultado.get('error'),
         'trade_id': resultado.get('trade_id'),
-        'tipo_posicion': None,
         'precio_entrada': resultado.get('precio_entrada'),
-        'precio_salida': None,
         'cantidad': resultado.get('cantidad'),
     }
     
-    return build_info_dict(
-        entorno=entorno_info,
-        portafolio=portafolio_info,
-        operacion=operacion_info
-    )
+    # Información de verificación (opcional)
+    verificacion_info = {}
+    if 'cambio_verificado' in resultado:
+        verificacion_info['cambio_verificado'] = resultado.get('cambio_verificado')
+    if equity_previa is not None:
+        verificacion_info['equity_previa'] = equity_previa
+        verificacion_info['equity_posterior'] = binance_state.get('equity')
+    
+    info_dict = {
+        'entorno': entorno_info,
+        'portafolio': portafolio_info,
+        'operacion': operacion_info,
+    }
+    
+    # Solo añadir verificacion si tiene datos
+    if verificacion_info:
+        info_dict['verificacion'] = verificacion_info
+    
+    return info_dict
 
 
 if __name__ == "__main__":

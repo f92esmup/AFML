@@ -64,14 +64,51 @@ class TestRegistroProduccion:
             reader = csv.reader(f)
             headers = next(reader)
             
-        # Verificar algunos campos clave
+        # Verificar campos de ENTORNO
         assert "timestamp" in headers
         assert "paso" in headers
         assert "action" in headers
+        assert "precio" in headers
+        assert "status" in headers
+        
+        # Verificar campos de PORTAFOLIO
         assert "balance" in headers
         assert "equity" in headers
+        assert "max_drawdown" in headers
+        assert "pnl_total" in headers
+        assert "posicion_abierta" in headers
+        assert "tipo_posicion_activa" in headers
+        assert "precio_entrada_activa" in headers
+        assert "cantidad_activa" in headers
+        assert "pnl_no_realizado" in headers
+        
+        # Verificar campos de OPERACION
         assert "tipo_accion" in headers
         assert "operacion" in headers
+        assert "resultado" in headers
+        assert "error" in headers
+        assert "trade_id" in headers
+        assert "precio_entrada" in headers
+        assert "cantidad" in headers
+        
+        # Verificar campos de VERIFICACION
+        assert "cambio_verificado" in headers
+        assert "equity_previa" in headers
+        assert "equity_posterior" in headers
+        
+        # Verificar que NO están los campos eliminados del entrenamiento
+        assert "episodio" not in headers
+        assert "recompensa" not in headers
+        assert "terminated" not in headers
+        assert "truncated" not in headers
+        assert "operaciones_total" not in headers
+        assert "trade_id_activo" not in headers
+        assert "velas_activa" not in headers
+        assert "tipo_posicion" not in headers
+        assert "precio_salida" not in headers
+        assert "cantidad_adicional" not in headers
+        assert "comision" not in headers
+        assert "slippage" not in headers
         
     def test_csv_headers_emergencia(self, temp_train_dir):
         """Test que el CSV de emergencias tiene los encabezados correctos."""
@@ -98,12 +135,8 @@ class TestRegistroProduccion:
             "entorno": {
                 "timestamp": "2023-01-01T12:00:00",
                 "paso": 1,
-                "episodio": 0,
                 "action": 0.5,
                 "precio": 50000.0,
-                "recompensa": None,
-                "terminated": False,
-                "truncated": False,
                 "status": "running",
             },
             "portafolio": {
@@ -113,11 +146,18 @@ class TestRegistroProduccion:
                 "pnl_total": 500.0,
                 "posicion_abierta": True,
                 "tipo_posicion_activa": "LONG",
+                "precio_entrada_activa": 49500.0,
+                "cantidad_activa": 0.1,
+                "pnl_no_realizado": 50.0,
             },
             "operacion": {
                 "tipo_accion": "long",
                 "operacion": "abrir_long",
                 "resultado": True,
+                "error": None,
+                "trade_id": 12345,
+                "precio_entrada": 50000.0,
+                "cantidad": 0.1,
             }
         }
         
@@ -144,13 +184,27 @@ class TestRegistroProduccion:
                     "paso": i,
                     "action": 0.5,
                     "precio": 50000.0 + i * 100,
+                    "status": "running",
                 },
                 "portafolio": {
                     "balance": 10000.0 + i * 100,
                     "equity": 10000.0 + i * 100,
+                    "max_drawdown": 0.0,
+                    "pnl_total": i * 100,
+                    "posicion_abierta": False,
+                    "tipo_posicion_activa": None,
+                    "precio_entrada_activa": None,
+                    "cantidad_activa": 0,
+                    "pnl_no_realizado": 0,
                 },
                 "operacion": {
                     "tipo_accion": "mantener",
+                    "operacion": "mantener",
+                    "resultado": True,
+                    "error": None,
+                    "trade_id": None,
+                    "precio_entrada": None,
+                    "cantidad": 0,
                 }
             }
             
@@ -162,6 +216,58 @@ class TestRegistroProduccion:
             
         # Header + 5 filas
         assert len(lines) == 6
+        
+    def test_registrar_paso_con_verificacion(self, temp_train_dir):
+        """Test de registro de un paso con campos de verificación opcionales."""
+        train_id, _ = temp_train_dir
+        
+        registro = RegistroProduccion(train_id)
+        
+        info_dict = {
+            "entorno": {
+                "timestamp": "2023-01-01T12:00:00",
+                "paso": 1,
+                "action": 0.5,
+                "precio": 50000.0,
+                "status": "running",
+            },
+            "portafolio": {
+                "balance": 10000.0,
+                "equity": 10500.0,
+                "max_drawdown": 0.05,
+                "pnl_total": 500.0,
+                "posicion_abierta": True,
+                "tipo_posicion_activa": "LONG",
+                "precio_entrada_activa": 49500.0,
+                "cantidad_activa": 0.1,
+                "pnl_no_realizado": 50.0,
+            },
+            "operacion": {
+                "tipo_accion": "long",
+                "operacion": "abrir_long",
+                "resultado": True,
+                "error": None,
+                "trade_id": 12345,
+                "precio_entrada": 50000.0,
+                "cantidad": 0.1,
+            },
+            "verificacion": {
+                "cambio_verificado": True,
+                "equity_previa": 10000.0,
+                "equity_posterior": 10500.0,
+            }
+        }
+        
+        registro.registrar_paso(info_dict)
+        
+        # Verificar que se escribió correctamente
+        import pandas as pd
+        df = pd.read_csv(registro.registro_path)
+        
+        assert len(df) == 1
+        assert df.iloc[0]['cambio_verificado'] == True
+        assert df.iloc[0]['equity_previa'] == 10000.0
+        assert df.iloc[0]['equity_posterior'] == 10500.0
         
     def test_registrar_emergencia(self, temp_train_dir):
         """Test de registro de emergencia."""
