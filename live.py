@@ -488,11 +488,15 @@ def ejecutar_operacion(
         cambio_detectado = False
         if 'abrir' in operacion or 'aumentar' in operacion:
             # Debería haber aumentado la cantidad
-            if estado_posterior['cantidad_activa'] > estado_previo.get('cantidad_activa', 0):
+            cantidad_post = estado_posterior.get('cantidad_activa') or 0
+            cantidad_prev = estado_previo.get('cantidad_activa') or 0
+            if cantidad_post > cantidad_prev:
                 cambio_detectado = True
         elif 'cerrar' in operacion:
             # Debería haber cerrado o cambiado
-            if not estado_posterior['posicion_abierta'] or estado_posterior['cantidad_activa'] != estado_previo.get('cantidad_activa', 0):
+            cantidad_post = estado_posterior.get('cantidad_activa') or 0
+            cantidad_prev = estado_previo.get('cantidad_activa') or 0
+            if not estado_posterior['posicion_abierta'] or cantidad_post != cantidad_prev:
                 cambio_detectado = True
         
         # Si tenemos trade_id pero no detectamos cambio, loguear advertencia
