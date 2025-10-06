@@ -72,6 +72,37 @@ class EntornoConfig(BaseModel):
     normalizar_portfolio: bool = Field(True, description="Activar normalización de portfolio observation (equity y PnL).")
     normalizar_recompensa: bool = Field(True, description="Usar retornos porcentuales en vez de absolutos para recompensas.")
     penalizacion_pct: float = Field(0.00001, ge=0, description="Penalización por no operar expresada como porcentaje del capital inicial.")
+    
+    # Nueva función de recompensa multifactorial
+    factor_escala_recompensa: float = Field(100.0, gt=0, description="Factor de escala para normalizar recompensas a rango [-1, +1].")
+    
+    # Pesos de componentes
+    peso_retorno_base: float = Field(1.0, ge=0, description="Peso del componente de retorno base.")
+    peso_temporal: float = Field(0.3, ge=0, description="Peso del componente temporal (penalización/bonificación por tiempo).")
+    peso_gestion: float = Field(0.2, ge=0, description="Peso del componente de gestión eficiente.")
+    peso_drawdown: float = Field(0.15, ge=0, description="Peso del componente de penalización por drawdown.")
+    peso_inaccion: float = Field(0.05, ge=0, description="Peso del componente de penalización por inacción.")
+    
+    # Penalización temporal por pérdidas
+    umbral_perdida_pct: float = Field(0.005, ge=0, lt=1, description="Umbral de pérdida porcentual para activar penalización temporal.")
+    factor_crecimiento_perdida: float = Field(0.05, ge=0, description="Factor de crecimiento de penalización por vela en pérdida.")
+    
+    # Bonificación por ganancias
+    umbral_ganancia_pct: float = Field(0.005, ge=0, lt=1, description="Umbral de ganancia porcentual para activar bonificación.")
+    factor_moderacion_ganancia: float = Field(0.3, ge=0, le=1, description="Factor de moderación de bonificación por ganancias.")
+    factor_crecimiento_ganancia: float = Field(0.01, ge=0, description="Factor de crecimiento de bonificación por vela en ganancia.")
+    
+    # Gestión eficiente
+    bonus_cierre_ganador: float = Field(0.02, ge=0, description="Bonificación base por cerrar posición ganadora.")
+    penalizacion_cierre_perdedor: float = Field(-0.005, le=0, description="Penalización base por cerrar posición perdedora.")
+    
+    # Drawdown
+    umbral_drawdown: float = Field(0.05, ge=0, lt=1, description="Umbral de drawdown antes de aplicar penalización.")
+    factor_penalizacion_drawdown: float = Field(0.5, ge=0, description="Factor de penalización cuadrática por drawdown.")
+    
+    # Anti-inacción
+    umbral_caida_equity: float = Field(0.002, ge=0, description="Umbral de caída de equity para penalizar inacción.")
+    penalizacion_inaccion: float = Field(-0.005, le=0, description="Penalización por inacción cuando equity está cayendo.")
 
 
 class NetArchConfig(BaseModel):

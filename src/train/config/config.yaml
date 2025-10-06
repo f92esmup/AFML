@@ -24,6 +24,41 @@ entorno:
   penalizacion_no_operar: 0.1
   umbral_mantener_posicion: 0.05
   window_size: 30
+  
+  # ════════════════════════════════════════════════════════════
+  # NUEVA FUNCIÓN DE RECOMPENSA MULTIFACTORIAL
+  # ════════════════════════════════════════════════════════════
+  
+  # Normalización de recompensas
+  factor_escala_recompensa: 100.0  # Escala retornos % a rango [-1, +1]
+  
+  # Pesos de componentes de recompensa (suman ~2.0 total)
+  peso_retorno_base: 1.0       # Cambio en equity
+  peso_temporal: 0.3           # Penalización/bonificación por tiempo
+  peso_gestion: 0.2            # Eficiencia en cierres
+  peso_drawdown: 0.15          # Protección contra ruina
+  peso_inaccion: 0.05          # Anti-inacción
+  
+  # Parámetros de penalización temporal por pérdidas
+  umbral_perdida_pct: 0.005           # 0.5% pérdida mínima para activar
+  factor_crecimiento_perdida: 0.05    # Penalización crece 5% por vela
+  
+  # Parámetros de bonificación por ganancias
+  umbral_ganancia_pct: 0.005          # 0.5% ganancia mínima para bonificar
+  factor_moderacion_ganancia: 0.3     # Solo 30% de la ganancia como bonus
+  factor_crecimiento_ganancia: 0.01   # Bonus crece 1% por vela
+  
+  # Parámetros de gestión eficiente (cierres)
+  bonus_cierre_ganador: 0.02           # 2% bonus base por cerrar ganancia
+  penalizacion_cierre_perdedor: -0.005 # -0.5% por cerrar pérdida (leve)
+  
+  # Parámetros de drawdown
+  umbral_drawdown: 0.05               # 5% drawdown antes de penalizar
+  factor_penalizacion_drawdown: 0.5   # Factor de penalización cuadrática
+  
+  # Parámetros de anti-inacción
+  umbral_caida_equity: 0.002          # 0.2% caída de equity sin posición
+  penalizacion_inaccion: -0.005       # -0.5% penalización por inacción
 output:
   data_filename: data.csv
   datasets_dir: datasets

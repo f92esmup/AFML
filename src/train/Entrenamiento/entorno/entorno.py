@@ -106,6 +106,42 @@ class TradingEnv(gym.Env):
 
             # Usamos prev_equity para calcular recompensa relativa basada en equity
             self.prev_equity: float = 0.0
+            
+            # Variables de seguimiento para componentes de recompensa multifactorial
+            self._posicion_paso_anterior: Optional[Any] = None  # Referencia a posición en paso anterior
+            self._pnl_total_previo: float = 0.0  # PnL total en paso anterior
+            self._velas_posicion_anterior: int = 0  # Número de velas de la posición cerrada
+            
+            # Parámetros de la función de recompensa multifactorial
+            self.factor_escala_recompensa: float = config.entorno.factor_escala_recompensa
+            
+            # Pesos de componentes
+            self.peso_retorno_base: float = config.entorno.peso_retorno_base
+            self.peso_temporal: float = config.entorno.peso_temporal
+            self.peso_gestion: float = config.entorno.peso_gestion
+            self.peso_drawdown: float = config.entorno.peso_drawdown
+            self.peso_inaccion: float = config.entorno.peso_inaccion
+            
+            # Parámetros de penalización temporal (pérdidas)
+            self.umbral_perdida_pct: float = config.entorno.umbral_perdida_pct
+            self.factor_crecimiento_perdida: float = config.entorno.factor_crecimiento_perdida
+            
+            # Parámetros de bonificación temporal (ganancias)
+            self.umbral_ganancia_pct: float = config.entorno.umbral_ganancia_pct
+            self.factor_moderacion_ganancia: float = config.entorno.factor_moderacion_ganancia
+            self.factor_crecimiento_ganancia: float = config.entorno.factor_crecimiento_ganancia
+            
+            # Parámetros de gestión de posiciones
+            self.bonus_cierre_ganador: float = config.entorno.bonus_cierre_ganador
+            self.penalizacion_cierre_perdedor: float = config.entorno.penalizacion_cierre_perdedor
+            
+            # Parámetros de drawdown
+            self.umbral_drawdown: float = config.entorno.umbral_drawdown
+            self.factor_penalizacion_drawdown: float = config.entorno.factor_penalizacion_drawdown
+            
+            # Parámetros de anti-inacción
+            self.umbral_caida_equity: float = config.entorno.umbral_caida_equity
+            self.penalizacion_inaccion: float = config.entorno.penalizacion_inaccion
 
             # Configurar scaler para normalización de datos de mercado
             self.scaler: Optional[StandardScaler] = scaler
@@ -194,6 +230,11 @@ class TradingEnv(gym.Env):
             )
 
             self.prev_equity = float(self.portafolio.get_equity(precio_inicio))
+            
+            # Reiniciar variables de seguimiento para la función de recompensa multifactorial
+            self._posicion_paso_anterior = None
+            self._pnl_total_previo = 0.0
+            self._velas_posicion_anterior = 0
 
             observacion: Any = self._get_observation()
 
@@ -451,59 +492,141 @@ class TradingEnv(gym.Env):
             raise
 
     def _recompensa(self, precio: float) -> float:
-        """Calcula la recompensa con validación y normalización opcional."""
+        """
+        Calcula la recompensa multifactorial con 5 componentes:
+        
+        1. RETORNO BASE: Cambio de equity respecto al paso anterior
+        2. COMPONENTE TEMPORAL: Penaliza mantener pérdidas, bonifica mantener ganancias (moderadamente)
+        3. COMPONENTE DE GESTIÓN: Bonifica cerrar ganancias, penaliza levemente cerrar pérdidas
+        4. COMPONENTE DE DRAWDOWN: Penaliza alto drawdown
+        5. COMPONENTE ANTI-INACCIÓN: Penaliza no actuar cuando equity cae
+        
+        La recompensa final se normaliza con tanh para mantenerla en [-1, +1].
+        """
         try:
             equity_actual: float = float(self.portafolio.get_equity(precio))
             
-            if self.normalizar_recompensa:
-                # NUEVA IMPLEMENTACIÓN: Retornos porcentuales
-                if self.prev_equity > 1e-6:  # Evitar división por cero
-                    retorno_pct: float = (equity_actual - self.prev_equity) / self.prev_equity
-                else:
-                    # Primer step o equity muy bajo: retorno = 0
-                    retorno_pct = 0.0
-                
-                # Aplicar factor de aversión al riesgo
-                if retorno_pct < 0:
-                    recompensa: float = retorno_pct * self.factor_aversion_riesgo
-                else:
-                    recompensa = retorno_pct
-                
-                # Penalización por no operar (en escala porcentual)
-                try:
-                    if (
-                        abs(recompensa) < 1e-9  # Prácticamente cero
-                        and self.portafolio.posicion_abierta is None
-                    ):
-                        recompensa -= self.penalizacion_pct
-                except Exception:
-                    pass
-                    
+            # ═══════════════════════════════════════════════════════════
+            # 1. COMPONENTE BASE: RETORNO
+            # ═══════════════════════════════════════════════════════════
+            if self.prev_equity > 1e-6:
+                retorno_pct: float = (equity_actual - self.prev_equity) / self.prev_equity
             else:
-                # IMPLEMENTACIÓN ORIGINAL: Valores absolutos
-                delta_equity: float = equity_actual - self.prev_equity
-
-                if delta_equity < 0:
-                    recompensa = delta_equity * self.factor_aversion_riesgo
-                else:
-                    recompensa = delta_equity
+                retorno_pct = 0.0
+            
+            r_base: float = self.peso_retorno_base * retorno_pct
+            
+            # ═══════════════════════════════════════════════════════════
+            # 2. COMPONENTE TEMPORAL: PENALIZACIÓN/BONIFICACIÓN POR TIEMPO
+            # ═══════════════════════════════════════════════════════════
+            r_temporal: float = 0.0
+            
+            if self.portafolio.posicion_abierta is not None:
+                pnl_actual: float = self.portafolio.calcular_PnL_no_realizado(precio)
+                pnl_pct: float = pnl_actual / self.portafolio.balance_inicial if self.portafolio.balance_inicial > 0 else 0.0
+                velas_posicion: int = self.portafolio.posicion_abierta.velas
                 
-                # Penalización por no operar (valor absoluto)
-                try:
-                    if (
-                        float(recompensa) == 0.0
-                        and self.portafolio.posicion_abierta is None
-                    ):
-                        recompensa = float(recompensa) - float(self.penalizacion_no_operar)
-                except Exception:
-                    pass
-
-            # Actualizamos prev_equity para el siguiente paso
+                # 2a. PÉRDIDAS: Penalización creciente exponencialmente
+                if pnl_pct < -self.umbral_perdida_pct:
+                    # Penalización crece exponencialmente con el tiempo
+                    penalizacion_base: float = abs(pnl_pct)
+                    factor_temporal: float = 1.0 + (velas_posicion * self.factor_crecimiento_perdida)
+                    r_temporal = -self.peso_temporal * penalizacion_base * factor_temporal
+                
+                # 2b. GANANCIAS: Bonificación moderada (evita "hold infinito")
+                elif pnl_pct > self.umbral_ganancia_pct:
+                    # Bonificación moderada que crece lentamente
+                    bonificacion_base: float = pnl_pct * self.factor_moderacion_ganancia
+                    factor_temporal_ganancia: float = 1.0 + (velas_posicion * self.factor_crecimiento_ganancia)
+                    r_temporal = self.peso_temporal * bonificacion_base * factor_temporal_ganancia
+            
+            # ═══════════════════════════════════════════════════════════
+            # 3. COMPONENTE DE GESTIÓN: PREMIAR CIERRES OPORTUNOS
+            # ═══════════════════════════════════════════════════════════
+            r_gestion: float = 0.0
+            
+            # Detectar si se cerró una posición en este paso
+            posicion_cerrada: bool = (
+                self._posicion_paso_anterior is not None and 
+                self.portafolio.posicion_abierta is None
+            )
+            
+            if posicion_cerrada:
+                # Calcular PnL de la posición cerrada
+                pnl_cerrado: float = self.portafolio._pnl_total_episodio - self._pnl_total_previo
+                
+                # 3a. CIERRE EN GANANCIA: Bonus
+                if pnl_cerrado > 0:
+                    r_gestion = self.peso_gestion * self.bonus_cierre_ganador
+                
+                # 3b. CIERRE EN PÉRDIDA: Penalización leve (es mejor cerrar que mantener)
+                else:
+                    r_gestion = self.peso_gestion * self.penalizacion_cierre_perdedor
+            
+            # ═══════════════════════════════════════════════════════════
+            # 4. COMPONENTE DE DRAWDOWN: PENALIZAR RIESGO ACUMULADO
+            # ═══════════════════════════════════════════════════════════
+            r_drawdown: float = 0.0
+            max_dd: float = self.portafolio.calcular_max_drawdown(precio)
+            
+            if max_dd > self.umbral_drawdown:
+                # Penalización cuadrática con el drawdown
+                exceso_dd: float = max_dd - self.umbral_drawdown
+                r_drawdown = -self.peso_drawdown * self.factor_penalizacion_drawdown * (exceso_dd ** 2)
+            
+            # ═══════════════════════════════════════════════════════════
+            # 5. COMPONENTE ANTI-INACCIÓN: PENALIZAR NO ACTUAR CON CAÍDA
+            # ═══════════════════════════════════════════════════════════
+            r_inaccion: float = 0.0
+            
+            # Si no hay posición Y el equity está cayendo
+            if self.portafolio.posicion_abierta is None and retorno_pct < -self.umbral_caida_equity:
+                r_inaccion = -self.peso_inaccion * self.penalizacion_inaccion
+            
+            # ═══════════════════════════════════════════════════════════
+            # COMBINACIÓN Y NORMALIZACIÓN
+            # ═══════════════════════════════════════════════════════════
+            recompensa_total: float = r_base + r_temporal + r_gestion + r_drawdown + r_inaccion
+            
+            # Normalización con tanh (escala suave a [-1, +1])
+            recompensa_normalizada: float = float(np.tanh(recompensa_total * self.factor_escala_recompensa))
+            
+            # ═══════════════════════════════════════════════════════════
+            # LOGGING DETALLADO (para TensorBoard)
+            # ═══════════════════════════════════════════════════════════
+            # Nota: tensorboard_writer se puede agregar dinámicamente desde train.py si es necesario
+            try:
+                if hasattr(self, 'tensorboard_writer') and self.tensorboard_writer is not None:
+                    global_step: int = self.episodio * 1000 + self.paso_actual
+                    self.tensorboard_writer.add_scalar('recompensa/total', recompensa_normalizada, global_step)  # type: ignore
+                    self.tensorboard_writer.add_scalar('recompensa/r_base', r_base, global_step)  # type: ignore
+                    self.tensorboard_writer.add_scalar('recompensa/r_temporal', r_temporal, global_step)  # type: ignore
+                    self.tensorboard_writer.add_scalar('recompensa/r_gestion', r_gestion, global_step)  # type: ignore
+                    self.tensorboard_writer.add_scalar('recompensa/r_drawdown', r_drawdown, global_step)  # type: ignore
+                    self.tensorboard_writer.add_scalar('recompensa/r_inaccion', r_inaccion, global_step)  # type: ignore
+            except Exception:
+                pass  # Silently ignore tensorboard logging errors
+            
+            # ═══════════════════════════════════════════════════════════
+            # ACTUALIZACIÓN DE ESTADO
+            # ═══════════════════════════════════════════════════════════
+            # Actualizar variables de seguimiento para el próximo paso
             self.prev_equity = equity_actual
-            return float(recompensa)
+            
+            if self.portafolio.posicion_abierta is not None:
+                self._posicion_paso_anterior = self.portafolio.posicion_abierta
+                self._velas_posicion_anterior = self.portafolio.posicion_abierta.velas
+            else:
+                self._posicion_paso_anterior = None
+                self._velas_posicion_anterior = 0
+            
+            self._pnl_total_previo = self.portafolio._pnl_total_episodio
+            
+            return recompensa_normalizada
 
         except Exception as e:
-            log.error(f"Error al calcular recompensa: {e}")
+            log.error(f"Error al calcular recompensa multifactorial: {e}")
+            log.error("Verificar configuración de parámetros de recompensa")
             raise
 
     def _ejecutar_action(self, action: float, precio: float) -> Dict[str, Any]:
