@@ -363,7 +363,9 @@ class Portafolio:
                 return False, {'error': 'parametros_invalidos'}
 
             # --- Cálculos para la parte adicional ---
-            cantidad_adicional: float = self._calcular_cantidad_invertir(precio, porcentaje_inversion_adicional)
+            # CRÍTICO: Calcular cantidad basada SOLO en balance disponible, no en equity total
+            # porque el margen de la posición existente ya está bloqueado
+            cantidad_adicional: float = self._calcular_cantidad_invertir_desde_balance(precio, porcentaje_inversion_adicional)
             
             margen_adicional: float = self._calcular_margen(precio, cantidad_adicional)
             comision_adicional: float
@@ -423,7 +425,13 @@ class Portafolio:
     def _reducir_posicion(self, precio: float, porcentaje_a_reducir: float) -> Tuple[bool, OperationInfo]:
         """
         Reduce una parte de la posición, realizando el PnL parcial.
-        El porcentaje a reducir se basa en el equity, de forma simétrica a _aumentar_posicion.
+        
+        CRÍTICO: El porcentaje a reducir se aplica sobre la CANTIDAD DE LA POSICIÓN ACTUAL,
+        no sobre el equity total. Esto evita problemas con el cálculo de margen.
+        
+        Args:
+            precio: Precio actual de cierre parcial
+            porcentaje_a_reducir: Porcentaje de la posición actual a cerrar (0-1)
         """
         
         try:
@@ -431,9 +439,11 @@ class Portafolio:
                 return False, {'error': 'parametros_invalidos'}
             
             # --- Cálculos para la parte a reducir ---
-            cantidad_a_reducir: float = self._calcular_cantidad_invertir(precio, porcentaje_a_reducir)
-
-            # Si la cantidad a reducir es mayor o igual a la posición actual, se cierra por completo.
+            # CRÍTICO: Calcular cantidad a reducir como porcentaje de la POSICIÓN ACTUAL
+            # NO como porcentaje del equity (que causaría inconsistencias)
+            cantidad_a_reducir: float = self._posicion_abierta.cantidad * porcentaje_a_reducir
+            
+            # Si se intenta reducir toda la posición o más, cerrar completamente
             if cantidad_a_reducir >= self._posicion_abierta.cantidad:
                 success, pnl, info = self.cerrar_posicion(precio)
                 return success, info
@@ -574,7 +584,9 @@ class Portafolio:
             raise
     
     def _calcular_cantidad_invertir(self, precio: float, porcentaje_inversion: float) -> float:
-        """Calcula la cantidad a invertir basada en un porcentaje del balance y el tipo de operación.
+        """Calcula la cantidad a invertir basada en un porcentaje del EQUITY TOTAL.
+        
+        Usado para ABRIR nuevas posiciones cuando no hay margen bloqueado.
         
         IMPORTANTE: Ajusta la cantidad para asegurar que el costo total (margen + comisión + slippage)
         no exceda el balance disponible, considerando un margen de seguridad del 0.1%.
@@ -618,6 +630,63 @@ class Portafolio:
             
         except Exception as e:
             log.error(f"Error al calcular cantidad a invertir: {e}")
+            raise
+    
+    def _calcular_cantidad_invertir_desde_balance(self, precio: float, porcentaje_inversion: float) -> float:
+        """Calcula la cantidad a invertir basada en un porcentaje del BALANCE DISPONIBLE.
+        
+        Usado para AUMENTAR posiciones existentes donde el margen ya está bloqueado.
+        
+        CRÍTICO: Usa balance disponible (_balance) en lugar de equity total, porque:
+        - El margen de la posición existente ya está bloqueado
+        - Solo podemos usar el balance líquido restante
+        - Evita el bug de restar margen múltiples veces
+        
+        Returns:
+            Cantidad ajustada que puede comprarse con el balance disponible
+        """
+        try:
+            if precio <= 0:
+                raise ValueError(f"Precio inválido: {precio}")
+            if porcentaje_inversion <= 0 or porcentaje_inversion > 1:
+                raise ValueError(f"Porcentaje de inversión inválido: {porcentaje_inversion}")
+            
+            if self._balance <= 0:
+                log.warning(f"Balance disponible insuficiente: {self._balance}")
+                return 0.0
+            
+            # Calcular cantidad objetivo basada SOLO en balance disponible
+            # NOTA: Esto es diferente a _calcular_cantidad_invertir que usa equity total
+            cantidad_objetivo: float = (self._balance * self.apalancamiento * porcentaje_inversion) / precio
+            
+            if cantidad_objetivo <= 0:
+                log.warning(f"Cantidad calculada no positiva: {cantidad_objetivo}")
+                return 0.0
+            
+            # Calcular costo total estimado
+            margen_estimado: float = (precio * cantidad_objetivo) / self.apalancamiento
+            comision_estimada: float = precio * cantidad_objetivo * self.comision_prc
+            slippage_estimado: float = precio * cantidad_objetivo * self.slippage_prc
+            costo_total_estimado: float = margen_estimado + comision_estimada + slippage_estimado
+            
+            # Si el costo excede el balance, ajustar la cantidad con margen de seguridad
+            if costo_total_estimado > self._balance:
+                # Factor de ajuste: balance_disponible / costo_estimado con 0.1% de margen
+                factor_seguridad: float = 0.999  # 99.9% para evitar problemas de redondeo
+                factor_ajuste: float = (self._balance / costo_total_estimado) * factor_seguridad
+                cantidad_ajustada: float = cantidad_objetivo * factor_ajuste
+                
+                log.debug(
+                    f"[AUMENTAR POSICIÓN] Cantidad ajustada de {cantidad_objetivo:.8f} a {cantidad_ajustada:.8f} "
+                    f"(factor: {factor_ajuste:.4f}) basado en balance disponible: ${self._balance:.2f}"
+                )
+                
+                return cantidad_ajustada
+            
+            return cantidad_objetivo
+            
+        except Exception as e:
+            log.error(f"Error al calcular cantidad desde balance disponible: {e}")
             raise
     
     def calcular_PnL_no_realizado(self, precio_actual: float) -> float:
