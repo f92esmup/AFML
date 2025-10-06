@@ -592,22 +592,6 @@ class TradingEnv(gym.Env):
             recompensa_normalizada: float = float(np.tanh(recompensa_total * self.factor_escala_recompensa))
             
             # ═══════════════════════════════════════════════════════════
-            # LOGGING DETALLADO (para TensorBoard)
-            # ═══════════════════════════════════════════════════════════
-            # Nota: tensorboard_writer se puede agregar dinámicamente desde train.py si es necesario
-            try:
-                if hasattr(self, 'tensorboard_writer') and self.tensorboard_writer is not None:
-                    global_step: int = self.episodio * 1000 + self.paso_actual
-                    self.tensorboard_writer.add_scalar('recompensa/total', recompensa_normalizada, global_step)  # type: ignore
-                    self.tensorboard_writer.add_scalar('recompensa/r_base', r_base, global_step)  # type: ignore
-                    self.tensorboard_writer.add_scalar('recompensa/r_temporal', r_temporal, global_step)  # type: ignore
-                    self.tensorboard_writer.add_scalar('recompensa/r_gestion', r_gestion, global_step)  # type: ignore
-                    self.tensorboard_writer.add_scalar('recompensa/r_drawdown', r_drawdown, global_step)  # type: ignore
-                    self.tensorboard_writer.add_scalar('recompensa/r_inaccion', r_inaccion, global_step)  # type: ignore
-            except Exception:
-                pass  # Silently ignore tensorboard logging errors
-            
-            # ═══════════════════════════════════════════════════════════
             # ACTUALIZACIÓN DE ESTADO
             # ═══════════════════════════════════════════════════════════
             # Actualizar variables de seguimiento para el próximo paso
