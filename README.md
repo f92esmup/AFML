@@ -102,12 +102,11 @@ Una vez construida la imagen, podemos ejecutar el entrenamiento dentro del conte
 
 ```bash
 docker run --rm -d \
-  --user $(id -u):$(id -g) \
   -v ./entrenamientos:/app/entrenamientos \
-  afml:latest \
+  afml:train \
   --symbol BTCUSDT \
-  --interval 1h \
-  --train-start-date 2023-01-01 \
+  --interval 1m \
+  --train-start-date 2024-01-01 \
   --train-end-date 2025-01-01 \
   --eval-start-date 2025-01-02 \
   --eval-end-date 2025-09-01 \
@@ -201,3 +200,92 @@ entrenamientos/<train_id>/produccion/
 ├── registro_<timestamp>.csv       # Registro de todas las operaciones
 └── emergencias_<timestamp>.csv    # Registro de eventos de emergencia
 ```
+
+---
+
+## Mejoras Pendientes
+
+### Sistema de Descarga de Datos - Manejo de Errores de Red
+
+**Fecha de análisis:** 6 de octubre de 2025
+
+#### Problema Identificado
+
+Durante la descarga de datos de evaluación se detectó un timeout en la API de Binance que resultó en pérdida de datos:
+
+- **Error:** `ReadTimeout` en el chunk 1/233 (datos del 2025-01-02 al 2025-01-03)
+- **Causa:** Timeout de lectura de 10 segundos en `fapi.binance.com`
+- **Impacto:** El chunk fallido se perdió, generando un hueco en los datos históricos
+- **Comportamiento actual:** El error se captura y registra, pero el proceso continúa sin reintentar la descarga del chunk fallido
+
+#### Código Problemático
+
+Ubicación: `src/train/AdquisicionDatos/adquisicion.py` (líneas 120-126)
+
+```python
+for i, (start_dt, end_dt) in enumerate(time_intervals):
+    try:
+        log.info(f"Descargando chunk {i+1}/{len(time_intervals)}...")
+        chunk = self._download_chunk(start_dt, end_dt)
+        all_klines_data.extend(chunk)  # Solo se añade si tiene éxito
+        time.sleep(0.5)
+    except Exception as e:
+        log.error(f"Error durante la descarga del chunk {start_dt}-{end_dt}: {e}", exc_info=True)
+        # PROBLEMA: No hay retry ni se marca el fallo
+```
+
+#### Aspectos Evaluados
+
+**✅ Positivos:**
+- El error fue capturado con `try-except`
+- Se registró el error con traceback completo
+- El proceso no se detuvo completamente
+
+**❌ Negativos (CRÍTICOS):**
+- El chunk fallido se perdió permanentemente
+- No hay mecanismo de reintentos
+- Un timeout puntual causa pérdida de datos
+- No se reporta el número de chunks fallidos al finalizar
+- El mensaje final "Descarga de todos los chunks completada" es engañoso si hubo fallos
+
+#### Mejoras Propuestas
+
+1. **Implementar sistema de reintentos con backoff exponencial:**
+   - Intentar descargar 3-5 veces antes de marcar como fallo definitivo
+   - Aumentar el tiempo de espera entre reintentos progresivamente (1s, 2s, 4s, 8s)
+   
+2. **Aumentar timeout de lectura:**
+   - Cambiar de 10 a 30 segundos para conexiones lentas
+   
+3. **Contador de fallos y reporte:**
+   - Llevar registro de chunks fallidos
+   - Incluir en el log final: chunks exitosos vs fallidos
+   - Alertar si el porcentaje de fallos supera un umbral (ej: >5%)
+   
+4. **Validación de completitud:**
+   - Verificar que no hay huecos temporales en el DataFrame final
+   - Advertir al usuario sobre datos faltantes antes de entrenar/evaluar
+
+5. **Implementación sugerida:**
+   ```python
+   MAX_RETRIES = 5
+   TIMEOUT = 30
+   failed_chunks = []
+   
+   for i, (start_dt, end_dt) in enumerate(time_intervals):
+       for retry in range(MAX_RETRIES):
+           try:
+               chunk = self._download_chunk(start_dt, end_dt)
+               all_klines_data.extend(chunk)
+               break  # Éxito, salir del retry loop
+           except Exception as e:
+               if retry == MAX_RETRIES - 1:
+                   failed_chunks.append((start_dt, end_dt))
+                   log.error(f"Fallo definitivo en chunk {start_dt}-{end_dt}")
+               else:
+                   wait_time = 2 ** retry
+                   log.warning(f"Reintento {retry+1}/{MAX_RETRIES} en {wait_time}s")
+                   time.sleep(wait_time)
+   ```
+
+**Prioridad:** Alta - Afecta la calidad e integridad de los datos de entrenamiento/evaluación
