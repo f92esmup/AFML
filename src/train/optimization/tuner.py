@@ -288,6 +288,7 @@ class HyperparameterTuner:
             
             # 6. Calcular métricas
             df_portafolio = eval_results['portafolio']
+            df_operacion = eval_results.get('operacion', None)  # Extraer historial de operaciones
             
             if len(df_portafolio) == 0:
                 log.warning("No se generaron datos de evaluación")
@@ -301,7 +302,7 @@ class HyperparameterTuner:
             metrics = calculate_metrics(
                 equity_curve=equity_curve,
                 initial_equity=initial_equity,
-                trades_df=None,  # Opcional: extraer trades si están disponibles
+                trades_df=df_operacion,  # ✅ FIX: Pasar historial de operaciones
                 risk_free_rate=0.0,
                 periods_per_year=8760  # Para 1h candles
             )
@@ -316,9 +317,12 @@ class HyperparameterTuner:
             trial.set_user_attr('total_return', metrics['total_return'])
             trial.set_user_attr('max_drawdown', metrics['max_drawdown'])
             trial.set_user_attr('final_equity', metrics['final_equity'])
+            trial.set_user_attr('win_rate', metrics['win_rate'])
+            trial.set_user_attr('profit_factor', metrics['profit_factor'])
+            trial.set_user_attr('num_trades', metrics['num_trades'])
             
             # Liberar memoria
-            del eval_env, agente, portafolio, df_portafolio
+            del eval_env, agente, portafolio, df_portafolio, df_operacion
             gc.collect()
             
             log.info(f"Trial {trial_num} completado. Sortino Ratio: {sortino:.3f}")
