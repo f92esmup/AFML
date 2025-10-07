@@ -26,7 +26,7 @@ python train.py \
   --train-end-date 2024-06-30 \
   --eval-start-date 2024-07-01 \
   --eval-end-date 2024-09-30 \
-  --episodios 5 \
+  --total-timesteps 50000 \
   --episodios-eval 3
 ```
 
@@ -37,7 +37,7 @@ python train.py \
 - `--train-end-date`: Fecha fin entrenamiento (YYYY-MM-DD)
 - `--eval-start-date`: Fecha inicio evaluación (YYYY-MM-DD)
 - `--eval-end-date`: Fecha fin evaluación (YYYY-MM-DD)
-- `--episodios`: Número de episodios de entrenamiento (default: 1)
+- `--total-timesteps`: Número total de pasos de entrenamiento (default: 10000)
 - `--episodios-eval`: Número de episodios de evaluación (default: 1)
 - `--config`: Ruta al config.yaml (default: src/train/config/config.yaml)
 
@@ -110,7 +110,7 @@ docker run --rm -d \
   --train-end-date 2025-01-01 \
   --eval-start-date 2025-01-02 \
   --eval-end-date 2025-09-01 \
-  --episodios 3
+  --total-timesteps 50000
 ```
 
 **Explicación:**
@@ -126,7 +126,7 @@ docker run --rm -d \
 - `--train-end-date 2025-01-01`: Fecha de fin del entrenamiento.
 - `--eval-start-date 2025-01-02`: Fecha de inicio de la evaluación.
 - `--eval-end-date 2025-09-01`: Fecha de fin de la evaluación.
-- `--episodios 3`: Número de episodios de entrenamiento.
+- `--total-timesteps 50000`: Número total de pasos de entrenamiento.
 
 ### 3. Verificar los resultados
 

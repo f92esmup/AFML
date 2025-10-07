@@ -25,7 +25,6 @@ from src.train.AdquisicionDatos.preprocesamiento import Preprocesamiento
 from src.train.config import parse_args_training
 from src.train.Entrenamiento.entorno import TradingEnv, Portafolio
 from src.train.Entrenamiento.agente import AgenteSac
-from src.utils.utils import calcular_steps
 
 if TYPE_CHECKING:
     from src.train.config import UnifiedConfig
@@ -203,15 +202,9 @@ class Entrenamiento:
             )
             log.debug("Entorno de trading creado exitosamente.")
 
-            # 4. Calcular timesteps totales
-            log.debug("Calculando timesteps totales...")
-            max_steps_per_episode: int = (
-                len(train_data) - self.config.entorno.window_size
-            )
-            total_timesteps: int = calcular_steps(
-                self.config.entorno.episodios, max_steps_per_episode
-            )
-            log.info(f"Timesteps totales calculados: {total_timesteps}")
+            # 4. Obtener timesteps totales de la configuración
+            total_timesteps: int = self.config.entorno.total_timesteps
+            log.info(f"Timesteps totales configurados: {total_timesteps}")
 
             # 5. Crear y entrenar agente SAC
             log.info("Creando agente SAC...")
@@ -336,7 +329,7 @@ class Entrenamiento:
                 "fecha_ejecucion": datetime.now().isoformat(),
                 "train_date_range": f"{self.train_start} to {self.train_end}",
                 "eval_date_range": f"{self.eval_start} to {self.eval_end}",
-                "episodios_entrenamiento": self.config.entorno.episodios,
+                "total_timesteps": self.config.entorno.total_timesteps,
                 "episodios_evaluacion": self.episodios_eval,
                 "train_id": os.path.basename(self.config.Output.base_dir),
             }

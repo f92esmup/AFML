@@ -64,11 +64,11 @@ def parse_args_training() -> argparse.Namespace:
 
         # Argumentos opcionales
         parser.add_argument(
-            "--episodios",
+            "--total-timesteps",
             type=int,
-            default=1,
+            default=10000,
             required=False,
-            help="Número total de episodios para entrenar el agente",
+            help="Número total de pasos (timesteps) para entrenar el agente",
         )
 
         parser.add_argument(
@@ -96,9 +96,9 @@ def parse_args_training() -> argparse.Namespace:
         if not args.interval or not args.interval.strip():
             raise ValueError("El argumento --interval no puede estar vacío")
 
-        if args.episodios <= 0:
+        if args.total_timesteps <= 0:
             raise ValueError(
-                f"El número de episodios debe ser mayor que 0, recibido: {args.episodios}"
+                f"El número de timesteps debe ser mayor que 0, recibido: {args.total_timesteps}"
             )
 
         if args.episodios_eval <= 0:
@@ -150,7 +150,7 @@ def parse_args_training() -> argparse.Namespace:
         log.debug(
             f"Argumentos parseados exitosamente: symbol={args.symbol}, interval={args.interval}, "
             f"train={args.train_start_date} a {args.train_end_date}, "
-            f"eval={args.eval_start_date} a {args.eval_end_date}, episodios={args.episodios}"
+            f"eval={args.eval_start_date} a {args.eval_end_date}, total_timesteps={args.total_timesteps}"
         )
         return args
 

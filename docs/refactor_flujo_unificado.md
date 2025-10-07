@@ -63,13 +63,14 @@ python train.py \
   --train-end-date 2024-06-30 \
   --eval-start-date 2024-07-01 \
   --eval-end-date 2024-09-30 \
-  --episodios 5 \
+  --total-timesteps 50000 \
   --episodios-eval 3
 ```
 
 **Argumentos eliminados:**
 - `--data-id`
 - `--data-eval-id`
+- `--episodios` (reemplazado por `--total-timesteps`)
 
 **Argumentos nuevos:**
 - `--symbol` (requerido)
@@ -78,6 +79,7 @@ python train.py \
 - `--train-end-date` (requerido)
 - `--eval-start-date` (requerido)
 - `--eval-end-date` (requerido)
+- `--total-timesteps` (opcional, default: 10000) - Especifica directamente los pasos de entrenamiento
 
 ## 🏗️ Cambios en Estructura de Directorios
 

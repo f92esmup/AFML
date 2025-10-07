@@ -16,7 +16,7 @@ SACmodel:
 data_downloader:
   limit: 1500
 entorno:
-  episodios: 0
+  total_timesteps: 10000
   factor_aversion_riesgo: 2
   max_drawdown_permitido: 0.2
   normalizar_portfolio: True

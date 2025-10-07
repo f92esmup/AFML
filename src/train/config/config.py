@@ -66,7 +66,7 @@ class EntornoConfig(BaseModel):
     factor_aversion_riesgo: float = Field(..., gt=1, description="Factor de aversión al riesgo para la recompensa.")
     umbral_mantener_posicion: float = Field(..., gt=0, lt=1, description="Umbral para mantener la posición actual.")
     penalizacion_no_operar: float = Field(..., ge=0, description="Penalización aplicada cuando el agente no realiza ninguna operación (recompensa == 0).")
-    episodios: int = Field(0, ge=0, description="Número total de episodios para entrenar el agente.")
+    total_timesteps: int = Field(10000, gt=0, description="Número total de timesteps para entrenar el agente.")
     
     # Normalización
     normalizar_portfolio: bool = Field(True, description="Activar normalización de portfolio observation (equity y PnL).")
@@ -258,15 +258,15 @@ class UnifiedConfig(BaseModel):
             yaml_config['data_downloader']['start_date'] = args.train_start_date
             yaml_config['data_downloader']['end_date'] = args.train_end_date
 
-            # Configurar número de episodios
+            # Configurar número de timesteps
             if "entorno" not in yaml_config:
                 raise KeyError("Falta la sección 'entorno' en la configuración")
 
-            yaml_config["entorno"]["episodios"] = args.episodios
+            yaml_config["entorno"]["total_timesteps"] = args.total_timesteps
 
             log.debug(
                 f"Argumentos integrados: symbol={args.symbol}, interval={args.interval}, "
-                f"train={args.train_start_date} a {args.train_end_date}, episodios={args.episodios}"
+                f"train={args.train_start_date} a {args.train_end_date}, total_timesteps={args.total_timesteps}"
             )
             return yaml_config
 
