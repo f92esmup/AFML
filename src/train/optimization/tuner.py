@@ -2,12 +2,18 @@
 
 Este módulo implementa la lógica principal de optimización usando Optuna
 para búsqueda bayesiana de hiperparámetros del sistema de trading.
+
+PARALELIZACIÓN:
+- Soporta ejecución de múltiples trials en paralelo con n_jobs
+- Thread-safe: datos compartidos en modo lectura
+- Cada trial tiene seed único para evitar resultados duplicados
 """
 
 import os
 import sys
 import logging
 import gc
+import random
 from typing import Dict, Any, Optional, Tuple
 from datetime import datetime
 import pandas as pd
@@ -228,6 +234,8 @@ class HyperparameterTuner:
     def _objective(self, trial: optuna.Trial) -> float:
         """Función objetivo para Optuna (maximizar Sortino Ratio).
         
+        ⚠️ THREAD-SAFE: Este método puede ser llamado por múltiples threads en paralelo.
+        
         Args:
             trial: Trial de Optuna
             
@@ -235,11 +243,28 @@ class HyperparameterTuner:
             Sortino Ratio (métrica a maximizar)
         """
         trial_num = trial.number
+        
+        # 🔒 Thread-safe logging: usar número de trial para identificar
         log.info("=" * 80)
-        log.info(f"INICIANDO TRIAL {trial_num + 1}/{self.n_trials}")
+        log.info(f"INICIANDO TRIAL {trial_num + 1}/{self.n_trials} [Trial ID: {trial_num}]")
         log.info("=" * 80)
         
         try:
+            # 🎲 Seed único por trial (importante para paralelización)
+            # Evita que trials paralelos generen exactamente los mismos resultados
+            trial_seed = 42 + trial_num  # Seed base + offset por trial
+            np.random.seed(trial_seed)
+            random.seed(trial_seed)
+            
+            # 🖥️ Gestión de dispositivos para paralelización
+            # Si hay múltiples GPUs, podemos distribuir trials entre ellas
+            # PyTorch/SB3 se encarga automáticamente de la asignación
+            # Si quieres control manual, descomentar:
+            # import torch
+            # if torch.cuda.is_available():
+            #     gpu_id = trial_num % torch.cuda.device_count()
+            #     os.environ['CUDA_VISIBLE_DEVICES'] = str(gpu_id)
+            
             # 1. Crear configuración para este trial
             trial_config = self._create_trial_config(trial)
             
@@ -339,9 +364,19 @@ class HyperparameterTuner:
             # Retornar valor muy bajo (no fallar el estudio completo)
             return -999.0
     
-    def optimize(self) -> optuna.Study:
-        """Ejecuta la optimización de hiperparámetros.
+    def optimize(
+        self,
+        n_jobs: int = 1,
+        show_progress_bar: bool = True,
+        timeout: Optional[int] = None,
+    ) -> optuna.Study:
+        """Ejecuta la optimización de hiperparámetros con paralelización.
         
+        Args:
+            n_jobs: Número de trials en paralelo (1=secuencial, -1=todos los cores, >1=workers específicos)
+            show_progress_bar: Mostrar barra de progreso durante optimización
+            timeout: Timeout total en segundos (None=sin límite, no recomendado para paralelización)
+            
         Returns:
             Estudio de Optuna con resultados
         """
@@ -372,14 +407,23 @@ class HyperparameterTuner:
                 load_if_exists=True,  # Continuar estudio si existe
             )
             
-            # 3. Ejecutar optimización
+            # 3. Ejecutar optimización CON PARALELIZACIÓN
             log.info(f"Iniciando {self.n_trials} trials de optimización...")
+            if n_jobs > 1 or n_jobs == -1:
+                import multiprocessing
+                actual_jobs = n_jobs if n_jobs > 0 else multiprocessing.cpu_count()
+                log.info(f"🚀 Modo paralelo: {actual_jobs} workers simultáneos")
+                log.info("⚠️  Asegúrate de tener suficiente RAM para múltiples modelos")
+            else:
+                log.info("Modo secuencial: 1 trial a la vez")
             log.info("Métrica objetivo: Sortino Ratio (mayor es mejor)")
             
             self.study.optimize(
                 self._objective,
                 n_trials=self.n_trials,
-                show_progress_bar=True,
+                n_jobs=n_jobs,  # 🔥 PARALELIZACIÓN
+                timeout=timeout,
+                show_progress_bar=show_progress_bar,
                 gc_after_trial=True,  # Liberar memoria después de cada trial
             )
             

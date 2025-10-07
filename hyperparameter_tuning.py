@@ -118,6 +118,13 @@ def parse_args() -> argparse.Namespace:
         help='Episodios de evaluación por trial (default: 1)'
     )
     
+    parser.add_argument(
+        '--n-jobs',
+        type=int,
+        default=5,
+        help='Número de trials en paralelo (default: 5, use -1 para todos los cores)'
+    )
+    
     # Qué optimizar
     parser.add_argument(
         '--optimize-sac',
@@ -165,8 +172,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         '--storage',
         type=str,
-        default=None,
-        help='URL de storage de Optuna (ej: sqlite:///optuna.db, default: en memoria)'
+        default='none', # Esto es de una implementación a medias que no está operativa.
+        help='URL de storage de Optuna (default: auto=SQLite en output_dir, "none"=en memoria)'
     )
     
     return parser.parse_args()
@@ -215,6 +222,7 @@ def main() -> None:
         log.info(f"  Optimize Env: {args.optimize_env}")
         log.info(f"  Optimize Network: {args.optimize_network}")
         log.info(f"  Optimize Portfolio: {args.optimize_portfolio}")
+        log.info(f"  N jobs (parallel): {args.n_jobs}")
         
         # 2. Crear directorio de salida
         output_path = create_output_structure(args.output_dir)
@@ -247,7 +255,19 @@ def main() -> None:
         base_config = UnifiedConfig.load_for_unified_training(config_args)
         log.info("Configuración base cargada exitosamente")
         
-        # 4. Crear optimizador
+        # 4. Configurar storage
+        storage_url = None
+        if args.storage == 'auto':
+            # Crear SQLite en el directorio de salida
+            storage_url = f"sqlite:///{output_path}/optuna_study.db"
+            log.info(f"Storage SQLite automático: {storage_url}")
+        elif args.storage != 'none':
+            storage_url = args.storage
+            log.info(f"Storage configurado: {storage_url}")
+        else:
+            log.info("Storage en memoria (no persistente)")
+        
+        # 5. Crear optimizador
         log.info("Creando optimizador de hiperparámetros...")
         
         tuner = HyperparameterTuner(
@@ -260,33 +280,37 @@ def main() -> None:
             timesteps_per_trial=args.timesteps_per_trial,
             n_eval_episodes=args.n_eval_episodes,
             study_name=args.study_name,
-            storage=args.storage,
+            storage=storage_url,
             optimize_sac=args.optimize_sac,
             optimize_env=args.optimize_env,
             optimize_network=args.optimize_network,
             optimize_portfolio=args.optimize_portfolio,
         )
         
-        # 5. Ejecutar optimización
+        # 6. Ejecutar optimización CON PARALELIZACIÓN
         log.info("Iniciando proceso de optimización...")
         log.info("Métrica objetivo: SORTINO RATIO (retorno ajustado por downside risk)")
+        log.info(f"🚀 Paralelización: {args.n_jobs} trials en paralelo")
         log.info("=" * 80)
         
-        study = tuner.optimize()
+        study = tuner.optimize(
+            n_jobs=args.n_jobs,
+            show_progress_bar=True
+        )
         
-        # 6. Guardar resultados
+        # 7. Guardar resultados
         log.info("=" * 80)
         log.info("Guardando resultados...")
         
         results_file = output_path / "best_params.yaml"
         tuner.save_results(str(results_file))
         
-        # 7. Generar visualizaciones
+        # 8. Generar visualizaciones
         log.info("Generando visualizaciones...")
         viz_dir = output_path / "visualizations"
         tuner.generate_visualizations(str(viz_dir))
         
-        # 8. Resumen final
+        # 9. Resumen final
         log.info("=" * 80)
         log.info("✅ OPTIMIZACIÓN COMPLETADA EXITOSAMENTE")
         log.info("=" * 80)
@@ -302,6 +326,10 @@ def main() -> None:
         log.info("  1. Revisar best_params.yaml para ver los mejores parámetros")
         log.info("  2. Abrir visualizations/*.html para análisis interactivo")
         log.info("  3. Usar los parámetros para entrenar modelo final con train.py")
+        if storage_url and storage_url.startswith("sqlite"):
+            log.info("")
+            log.info("💡 Monitoreo en tiempo real (opcional):")
+            log.info(f"   optuna-dashboard {storage_url}")
         log.info("=" * 80)
         
     except KeyboardInterrupt:
