@@ -69,7 +69,7 @@ def suggest_env_params(trial: optuna.Trial) -> Dict[str, Any]:
         'factor_aversion_riesgo': trial.suggest_float('factor_aversion_riesgo', 1.0, 5.0),
         
         # Max drawdown permitido (10% a 25% - rango más conservador)
-        'max_drawdown_permitido': trial.suggest_float('max_drawdown_permitido', 0.10, 0.25),
+        'max_drawdown_permitido': trial.suggest_float('max_drawdown_permitido', 0.20, 0.40),
         
         # Factor de escala de recompensa
         'factor_escala_recompensa': trial.suggest_float('factor_escala_recompensa', 50.0, 200.0),
