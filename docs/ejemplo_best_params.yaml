@@ -1,0 +1,102 @@
+# Ejemplo de Configuración Optimizada
+# Este archivo muestra cómo se vería best_params.yaml después de la optimización
+
+optimization_metadata:
+  study_name: trading_optimization_20251007_150000
+  n_trials: 50
+  best_trial: 34
+  optimization_date: '2025-10-07T15:30:45.123456'
+  train_period: 2024-01-01 to 2024-02-01
+  eval_period: 2024-02-02 to 2024-03-01
+  timesteps_per_trial: 5000
+
+best_metrics:
+  sortino_ratio: 2.456      # ⭐ Métrica principal (mayor es mejor)
+  sharpe_ratio: 1.892       # Métrica secundaria
+  total_return: 0.234       # 23.4% retorno total
+  max_drawdown: 0.089       # 8.9% drawdown máximo
+  final_equity: 12340.50    # Capital final
+
+# ════════════════════════════════════════════════════════════════════════════
+# MEJORES PARÁMETROS ENCONTRADOS
+# ════════════════════════════════════════════════════════════════════════════
+best_params:
+  
+  # ──────────────────────────────────────────────────────────────────────────
+  # HIPERPARÁMETROS DEL MODELO SAC
+  # ──────────────────────────────────────────────────────────────────────────
+  learning_rate: 0.00034567  # Tasa de aprendizaje optimizada
+  batch_size: 256            # Tamaño de batch
+  gamma: 0.985               # Factor de descuento
+  tau: 0.0075                # Soft update de target networks
+  ent_coef_target: 0.15      # Target para entropy coefficient
+  learning_starts: 5500      # Timesteps antes de empezar a entrenar
+  gradient_steps: 1          # Pasos de gradiente por step
+  buffer_size: 500000        # Tamaño del replay buffer
+  
+  # ──────────────────────────────────────────────────────────────────────────
+  # PARÁMETROS DEL ENTORNO DE TRADING
+  # ──────────────────────────────────────────────────────────────────────────
+  window_size: 50                      # Ventana de observación
+  factor_aversion_riesgo: 2.3          # Aversión al riesgo
+  max_drawdown_permitido: 0.22         # Drawdown máximo permitido
+  factor_escala_recompensa: 125.0      # Escala de recompensas
+  
+  # Pesos de componentes de recompensa
+  peso_retorno_base: 1.2               # Peso del retorno base
+  peso_temporal: 0.25                  # Peso de penalización temporal
+  peso_gestion: 0.18                   # Peso de gestión eficiente
+  peso_drawdown: 0.12                  # Peso de protección drawdown
+  
+  # Umbrales
+  umbral_perdida_pct: 0.0045           # Umbral para activar penalización
+  umbral_ganancia_pct: 0.0055          # Umbral para bonificación
+  penalizacion_no_operar: 0.08         # Penalización por inacción
+  
+  # ──────────────────────────────────────────────────────────────────────────
+  # ARQUITECTURA DE RED NEURONAL
+  # ──────────────────────────────────────────────────────────────────────────
+  n_layers: 3                # Número de capas
+  layer_0_size: 256          # Tamaño capa 1
+  layer_1_size: 256          # Tamaño capa 2
+  layer_2_size: 128          # Tamaño capa 3
+  log_std_init: -3.2         # Log std inicial
+  n_critics: 2               # Número de Q-networks
+  
+  # ──────────────────────────────────────────────────────────────────────────
+  # PARÁMETROS DEL PORTAFOLIO (si se optimizó)
+  # ──────────────────────────────────────────────────────────────────────────
+  apalancamiento: 12.5       # Apalancamiento óptimo
+
+# ════════════════════════════════════════════════════════════════════════════
+# RESUMEN DE TODOS LOS TRIALS
+# ════════════════════════════════════════════════════════════════════════════
+all_trials_summary:
+  total: 50              # Total de trials ejecutados
+  completed: 48          # Trials completados con éxito
+  pruned: 2              # Trials podados (early stopping)
+  failed: 0              # Trials fallidos
+
+# ════════════════════════════════════════════════════════════════════════════
+# CÓMO USAR ESTOS PARÁMETROS
+# ════════════════════════════════════════════════════════════════════════════
+#
+# Opción 1: Actualizar src/train/config/config.yaml manualmente
+#   - Copiar los valores de best_params a las secciones correspondientes
+#   - Ejecutar train.py con más timesteps para entrenamiento final
+#
+# Opción 2: Crear nueva configuración específica
+#   - Guardar como config_optimized.yaml
+#   - Modificar código para cargar esta configuración
+#
+# Ejemplo de comando para entrenamiento final:
+#   python train.py \
+#       --symbol BTCUSDT --interval 1h \
+#       --train-start-date 2024-01-01 --train-end-date 2024-06-01 \
+#       --eval-start-date 2024-06-02 --eval-end-date 2024-07-01 \
+#       --total-timesteps 100000 \
+#       --learning-rate 0.00034567 \
+#       --batch-size 256 \
+#       --window-size 50
+#
+# ════════════════════════════════════════════════════════════════════════════
