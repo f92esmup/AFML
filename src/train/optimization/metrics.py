@@ -231,8 +231,22 @@ def calculate_win_rate(trades_df: pd.DataFrame) -> float:
         log.warning("No se encontró columna de PnL en trades_df")
         return 0.0
     
-    winning_trades = (trades_df[pnl_col] > 0).sum()
-    total_trades = len(trades_df)
+    # ✅ FILTRAR solo filas con PnL realizado (operaciones de cierre)
+    # Eliminar filas donde pnl_realizado es NaN o vacío
+    closed_trades = trades_df[trades_df[pnl_col].notna() & (trades_df[pnl_col] != '')]
+    
+    if len(closed_trades) == 0:
+        return 0.0
+    
+    # Convertir a numérico por si acaso hay strings
+    pnl_values = pd.to_numeric(closed_trades[pnl_col], errors='coerce')
+    pnl_values = pnl_values.dropna()
+    
+    if len(pnl_values) == 0:
+        return 0.0
+    
+    winning_trades = (pnl_values > 0).sum()
+    total_trades = len(pnl_values)
     
     if total_trades == 0:
         return 0.0
@@ -263,8 +277,22 @@ def calculate_profit_factor(trades_df: pd.DataFrame) -> float:
     if pnl_col is None:
         return 0.0
     
-    gross_profit = trades_df[trades_df[pnl_col] > 0][pnl_col].sum()
-    gross_loss = abs(trades_df[trades_df[pnl_col] < 0][pnl_col].sum())
+    # ✅ FILTRAR solo filas con PnL realizado (operaciones de cierre)
+    # Eliminar filas donde pnl_realizado es NaN o vacío
+    closed_trades = trades_df[trades_df[pnl_col].notna() & (trades_df[pnl_col] != '')]
+    
+    if len(closed_trades) == 0:
+        return 0.0
+    
+    # Convertir a numérico por si acaso hay strings
+    pnl_values = pd.to_numeric(closed_trades[pnl_col], errors='coerce')
+    pnl_values = pnl_values.dropna()
+    
+    if len(pnl_values) == 0:
+        return 0.0
+    
+    gross_profit = pnl_values[pnl_values > 0].sum()
+    gross_loss = abs(pnl_values[pnl_values < 0].sum())
     
     if gross_loss == 0:
         if gross_profit > 0:
@@ -324,7 +352,19 @@ def calculate_metrics(
     if trades_df is not None and len(trades_df) > 0:
         metrics['win_rate'] = calculate_win_rate(trades_df)
         metrics['profit_factor'] = calculate_profit_factor(trades_df)
-        metrics['num_trades'] = len(trades_df)
+        
+        # ✅ Contar solo las operaciones con PnL realizado (cierres)
+        pnl_col = None
+        for col in ['pnl_realizado', 'profit', 'pnl', 'return']:
+            if col in trades_df.columns:
+                pnl_col = col
+                break
+        
+        if pnl_col is not None:
+            closed_trades = trades_df[trades_df[pnl_col].notna() & (trades_df[pnl_col] != '')]
+            metrics['num_trades'] = len(closed_trades)
+        else:
+            metrics['num_trades'] = 0
     
     return metrics
 
