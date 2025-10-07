@@ -61,13 +61,30 @@ def calculate_sortino_ratio(
     # Retorno promedio
     mean_return = np.mean(returns)
     
+    # ✅ FIX: Detectar si el agente NO OPERA (equity constante)
+    if np.std(returns) == 0:
+        log.warning("Equity constante - Agente no opera. Penalizando con Sortino = 0.0")
+        return 0.0
+    
     # Calcular downside deviation (solo retornos negativos)
     downside_returns = returns[returns < 0]
     
     if len(downside_returns) == 0:
-        # No hay retornos negativos - estrategia perfecta
-        log.info("No hay retornos negativos - Sortino Ratio infinito, retornando valor alto")
-        return 100.0  # Valor arbitrariamente alto
+        # No hay retornos negativos pero SÍ hay retornos positivos
+        # Esto es una estrategia perfecta (solo ganancias)
+        # Usar la volatilidad total como proxy para downside risk
+        total_std = np.std(returns, ddof=1)
+        if total_std == 0:
+            log.warning("Sin volatilidad, retornando 0.0")
+            return 0.0
+        
+        # Anualizar con volatilidad total (subestima Sortino, pero evita infinitos)
+        annualized_return = mean_return * periods_per_year
+        annualized_std = total_std * np.sqrt(periods_per_year)
+        sortino = (annualized_return - risk_free_rate) / annualized_std
+        
+        log.info(f"Sin retornos negativos - Usando volatilidad total. Sortino: {sortino:.2f}")
+        return float(sortino)
     
     downside_std = np.std(downside_returns, ddof=1)
     
