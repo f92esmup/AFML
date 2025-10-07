@@ -61,10 +61,31 @@ def calculate_sortino_ratio(
     # Retorno promedio
     mean_return = np.mean(returns)
     
-    # ✅ FIX: Detectar si el agente NO OPERA (equity constante)
-    if np.std(returns) == 0:
-        log.warning("Equity constante - Agente no opera. Penalizando con Sortino = 0.0")
-        return 0.0
+    # ✅ FIX: Detectar si el agente NO OPERA (equity constante o sin volatilidad)
+    total_std = np.std(returns, ddof=1)
+    
+    # Usar epsilon para comparación (evitar errores de precisión float)
+    epsilon = 1e-10
+    
+    if total_std < epsilon:
+        # Caso 1: Equity constante (agente no opera)
+        # Caso 2: Retornos constantes (crecimiento/decrecimiento perfectamente lineal)
+        if abs(mean_return) < epsilon:
+            log.warning("Equity constante - Agente no opera. Penalizando con Sortino = 0.0")
+            return 0.0
+        else:
+            # Retornos constantes positivos o negativos (prácticamente imposible en trading real)
+            # Retornar un Sortino alto pero no infinito para estrategias ganadoras
+            # o negativo para perdedoras
+            annualized_return = mean_return * periods_per_year
+            if annualized_return > 0:
+                # Estrategia ganadora perfecta: retornar valor alto pero razonable
+                log.warning(f"Retornos constantes positivos ({mean_return:.6f}) - Retornando Sortino = 50.0")
+                return 50.0
+            else:
+                # Estrategia perdedora perfecta: Sortino muy negativo
+                log.warning(f"Retornos constantes negativos ({mean_return:.6f}) - Retornando Sortino = -50.0")
+                return -50.0
     
     # Calcular downside deviation (solo retornos negativos)
     downside_returns = returns[returns < 0]
@@ -73,10 +94,6 @@ def calculate_sortino_ratio(
         # No hay retornos negativos pero SÍ hay retornos positivos
         # Esto es una estrategia perfecta (solo ganancias)
         # Usar la volatilidad total como proxy para downside risk
-        total_std = np.std(returns, ddof=1)
-        if total_std == 0:
-            log.warning("Sin volatilidad, retornando 0.0")
-            return 0.0
         
         # Anualizar con volatilidad total (subestima Sortino, pero evita infinitos)
         annualized_return = mean_return * periods_per_year

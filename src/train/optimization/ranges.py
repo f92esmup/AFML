@@ -137,8 +137,8 @@ def suggest_portfolio_params(trial: optuna.Trial) -> Dict[str, Any]:
         Diccionario con parámetros sugeridos para el portafolio
     """
     params = {
-        # Apalancamiento
-        'apalancamiento': trial.suggest_float('apalancamiento', 5.0, 20.0),
+        # Apalancamiento (debe ser entero: 1x, 5x, 10x, 15x, 20x)
+        'apalancamiento': trial.suggest_int('apalancamiento', 5, 20),
         
         # Comisión (típicamente fija, pero se puede optimizar)
         # 'comision': trial.suggest_float('comision', 0.0005, 0.002),
