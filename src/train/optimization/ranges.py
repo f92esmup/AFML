@@ -68,8 +68,8 @@ def suggest_env_params(trial: optuna.Trial) -> Dict[str, Any]:
         # Factor de aversión al riesgo
         'factor_aversion_riesgo': trial.suggest_float('factor_aversion_riesgo', 1.0, 5.0),
         
-        # Max drawdown permitido
-        'max_drawdown_permitido': trial.suggest_float('max_drawdown_permitido', 0.15, 0.3),
+        # Max drawdown permitido (10% a 25% - rango más conservador)
+        'max_drawdown_permitido': trial.suggest_float('max_drawdown_permitido', 0.10, 0.25),
         
         # Factor de escala de recompensa
         'factor_escala_recompensa': trial.suggest_float('factor_escala_recompensa', 50.0, 200.0),
@@ -100,12 +100,14 @@ def suggest_network_architecture(trial: optuna.Trial) -> Dict[str, Any]:
     Returns:
         Diccionario con arquitectura sugerida
     """
-    # Número de capas (2 o 3)
-    n_layers = trial.suggest_int('n_layers', 2, 3)
+    # Número de capas (2 a 10 para máxima flexibilidad)
+    # NOTA: Puedes ajustar el rango según necesites (ej: 2-5 para redes más simples)
+    n_layers = trial.suggest_int('n_layers', 2, 10)
     
     # Tamaño de capas (potencias de 2)
     layer_sizes = []
     for i in range(n_layers):
+        # Cada capa tiene su propio tamaño independiente
         size = trial.suggest_categorical(f'layer_{i}_size', [128, 256, 512])
         layer_sizes.append(size)
     
@@ -240,7 +242,7 @@ def get_recommended_ranges_info() -> str:
     ─────────────────────────────────────────────────────────────────
     • window_size:                  [20, 30, 50, 100]
     • factor_aversion_riesgo:       [1.0, 5.0]
-    • max_drawdown_permitido:       [0.15, 0.3]
+    • max_drawdown_permitido:       [0.10, 0.25]  (10%-25%, conservador)
     • factor_escala_recompensa:     [50.0, 200.0]
     • peso_retorno_base:            [0.5, 2.0]
     • peso_temporal:                [0.1, 0.5]
@@ -252,7 +254,7 @@ def get_recommended_ranges_info() -> str:
     
     🧠 ARQUITECTURA DE RED:
     ─────────────────────────────────────────────────────────────────
-    • n_layers:           [2, 3]
+    • n_layers:           [2, 10]  (2 a 10 capas ocultas)
     • layer_size:         [128, 256, 512]
     • log_std_init:       [-4.0, -2.0]
     • n_critics:          [2, 3]
