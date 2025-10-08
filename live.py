@@ -153,6 +153,84 @@ async def main() -> None:
         return
     
     # ============================================================================
+    # FASE 1.5: CONFIGURACIÓN DE MONITOREO CONTINUO
+    # ============================================================================
+    
+    # Flag compartido para señalizar emergencia desde cualquier tarea
+    emergencia_activa = {"activada": False, "razon": None, "resultado": None}
+    
+    async def monitor_drawdown_continuo(
+        intervalo_segundos: int = 30
+    ) -> None:
+        """Monitorea continuamente el drawdown mientras el sistema está en espera.
+        
+        Esta tarea se ejecuta en paralelo al bucle principal y verifica cada X segundos
+        si se ha alcanzado el máximo drawdown permitido. Si se detecta, activa el
+        protocolo de emergencia inmediatamente sin esperar a la siguiente vela.
+        
+        Args:
+            intervalo_segundos: Frecuencia de verificación (default: 30 segundos)
+        """
+        log.info(f"🔍 Monitor de drawdown continuo iniciado (cada {intervalo_segundos}s)")
+        
+        while not emergencia_activa["activada"]:
+            try:
+                await asyncio.sleep(intervalo_segundos)
+                
+                # Actualizar información de cuenta
+                if not binance.get_account_info():
+                    log.warning("Monitor: Error al actualizar cuenta, reintentando...")
+                    continue
+                
+                # Verificar drawdown
+                ok_drawdown, dd_actual = control_riesgo.verificar_drawdown()
+                
+                if not ok_drawdown:
+                    # DRAWDOWN EXCESIVO DETECTADO
+                    log.critical("=" * 80)
+                    log.critical("🚨 MONITOR CONTINUO: MAX DRAWDOWN ALCANZADO")
+                    log.critical(f"   Drawdown actual: {dd_actual*100:.2f}%")
+                    log.critical(f"   Límite: {config.max_drawdown_permitido*100:.2f}%")
+                    log.critical("   Activando protocolo de emergencia INMEDIATAMENTE...")
+                    log.critical("=" * 80)
+                    
+                    # Activar protocolo de emergencia
+                    resultado_emergencia = control_riesgo.activar_protocolo_emergencia(
+                        f"Max drawdown alcanzado (monitor continuo): {dd_actual*100:.2f}%"
+                    )
+                    
+                    # Registrar emergencia
+                    registro.registrar_emergencia(
+                        razon=f"Max drawdown detectado por monitor continuo: {dd_actual*100:.2f}%",
+                        balance_final=resultado_emergencia['balance_final'],
+                        equity_final=resultado_emergencia['equity_final'],
+                        posiciones_cerradas=resultado_emergencia['posiciones_cerradas'],
+                        detalles=str(resultado_emergencia['errores'])
+                    )
+                    
+                    # Señalizar emergencia al bucle principal
+                    emergencia_activa["activada"] = True
+                    emergencia_activa["razon"] = f"Max drawdown: {dd_actual*100:.2f}%"
+                    emergencia_activa["resultado"] = resultado_emergencia
+                    
+                    log.critical("Monitor: Señal de emergencia enviada al bucle principal")
+                    break
+                    
+                else:
+                    # Todo OK, log discreto cada N iteraciones
+                    # (Para no saturar los logs, solo log si drawdown > 50% del límite)
+                    if dd_actual > (config.max_drawdown_permitido * 0.5):
+                        log.info(f"📊 Monitor: Drawdown actual {dd_actual*100:.1f}% "
+                               f"(límite: {config.max_drawdown_permitido*100:.1f}%)")
+                        
+            except Exception as e:
+                log.error(f"Monitor: Error en verificación de drawdown: {e}")
+                # Continuar monitoreando a pesar del error
+                continue
+        
+        log.info("🔍 Monitor de drawdown continuo finalizado")
+    
+    # ============================================================================
     # FASE 2: BUCLE PRINCIPAL DE TRADING
     # ============================================================================
     
@@ -160,11 +238,26 @@ async def main() -> None:
     log.info("📊 INICIANDO BUCLE PRINCIPAL DE TRADING")
     log.info("=" * 80 + "\n")
     
+    # Iniciar tarea de monitoreo en paralelo
+    monitor_task = asyncio.create_task(monitor_drawdown_continuo(intervalo_segundos=30))
+    log.info("✅ Monitor de drawdown continuo activado")
+    
     paso = 0
     
     try:
         # Stream de velas desde WebSocket
         async for nueva_vela in data_provider.stream_velas():
+            
+            # ----------------------------------------------------------------
+            # 0. VERIFICAR SI MONITOR CONTINUO ACTIVÓ EMERGENCIA
+            # ----------------------------------------------------------------
+            if emergencia_activa["activada"]:
+                log.critical("=" * 80)
+                log.critical("🚨 EMERGENCIA DETECTADA POR MONITOR CONTINUO")
+                log.critical(f"   Razón: {emergencia_activa['razon']}")
+                log.critical("   Sistema detenido preventivamente")
+                log.critical("=" * 80)
+                break
             
             log.info(f"\n{'='*60}")
             log.info(f"PASO {paso} - {nueva_vela['timestamp']}")
@@ -181,6 +274,8 @@ async def main() -> None:
             # ----------------------------------------------------------------
             # B. VERIFICAR RIESGO PREVIO (MAX DRAWDOWN)
             # ----------------------------------------------------------------
+            # NOTA: Esta verificación sigue siendo necesaria como doble check
+            # en el momento exacto de recibir una nueva vela
             ok_drawdown, dd_actual = control_riesgo.verificar_drawdown()
             if not ok_drawdown:
                 log.critical("🚨 MAX DRAWDOWN ALCANZADO - Activando protocolo de emergencia")
@@ -196,6 +291,11 @@ async def main() -> None:
                     posiciones_cerradas=resultado_emergencia['posiciones_cerradas'],
                     detalles=str(resultado_emergencia['errores'])
                 )
+                
+                # Señalizar emergencia al monitor (para que también se detenga)
+                emergencia_activa["activada"] = True
+                emergencia_activa["razon"] = f"Max drawdown: {dd_actual*100:.2f}%"
+                emergencia_activa["resultado"] = resultado_emergencia
                 
                 log.critical("Sistema detenido por max drawdown")
                 break
@@ -228,6 +328,11 @@ async def main() -> None:
                         posiciones_cerradas=resultado_emergencia['posiciones_cerradas'],
                         detalles=error_msg
                     )
+                    
+                    # Señalizar emergencia al monitor
+                    emergencia_activa["activada"] = True
+                    emergencia_activa["razon"] = "Ventana de observación inválida"
+                    emergencia_activa["resultado"] = resultado_emergencia
                     
                     log.critical("Sistema detenido por ventana inválida")
                     break
@@ -340,6 +445,9 @@ async def main() -> None:
             
     except KeyboardInterrupt:
         log.warning("\n⚠️  Interrupción por usuario (Ctrl+C)")
+        # Señalizar emergencia para detener el monitor
+        emergencia_activa["activada"] = True
+        emergencia_activa["razon"] = "Interrupción por usuario"
         
     except Exception as e:
         log.critical(f"\n❌ ERROR CRÍTICO en bucle principal: {e}")
@@ -359,11 +467,26 @@ async def main() -> None:
             posiciones_cerradas=resultado_emergencia['posiciones_cerradas'],
             detalles=str(e)
         )
+        
+        # Señalizar emergencia al monitor
+        emergencia_activa["activada"] = True
+        emergencia_activa["razon"] = f"Error crítico: {type(e).__name__}"
+        emergencia_activa["resultado"] = resultado_emergencia
     
     finally:
         # ============================================================================
         # FASE 3: LIMPIEZA Y CIERRE
         # ============================================================================
+        
+        # Cancelar tarea de monitoreo si aún está corriendo
+        if not monitor_task.done():
+            log.info("Cancelando monitor de drawdown continuo...")
+            monitor_task.cancel()
+            try:
+                await monitor_task
+            except asyncio.CancelledError:
+                log.info("✅ Monitor de drawdown cancelado")
+        
         log.info("\n" + "=" * 80)
         log.info("🔄 FINALIZANDO SISTEMA")
         log.info("=" * 80)
