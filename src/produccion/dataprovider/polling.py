@@ -209,22 +209,32 @@ class DataProviderPolling(DataProviderBase):
                 try:
                     vela = await self._fetch_latest_closed_candle()
                     
-                    if vela:
-                        self.velas_descargadas += 1
-                        log.info(f"📊 Nueva vela descargada: {vela['timestamp']} - Close: {vela['close']:.2f}")
+                    # Si llegamos aquí, la vela fue obtenida exitosamente
+                    self.velas_descargadas += 1
+                    log.info(f"📊 Nueva vela descargada: {vela['timestamp']} - Close: {vela['close']:.2f}")
+                    
+                    # Actualizar ventana
+                    self._actualizar_ventana(vela)
+                    
+                    # Yield la vela
+                    yield vela
                         
-                        # Actualizar ventana
-                        self._actualizar_ventana(vela)
-                        
-                        # Yield la vela
-                        yield vela
-                    else:
-                        log.warning("No se pudo obtener la última vela, reintentando en el próximo ciclo...")
-                        
+                except RuntimeError as e:
+                    # Error crítico: después de 10 intentos no se pudo obtener vela
+                    log.error("=" * 80)
+                    log.error("❌ ERROR CRÍTICO EN OBTENCIÓN DE DATOS")
+                    log.error("=" * 80)
+                    log.error(f"Razón: {e}")
+                    log.error("El sistema se detendrá para evitar decisiones con datos obsoletos")
+                    log.error("=" * 80)
+                    # Re-lanzar para detener el sistema
+                    raise
+                    
                 except Exception as e:
-                    log.error(f"Error al obtener vela: {e}")
-                    log.error("Continuando con el siguiente ciclo...")
-                    await asyncio.sleep(10)  # Esperar 10s antes de reintentar
+                    # Otros errores inesperados
+                    log.error(f"❌ Error inesperado al obtener vela: {e}")
+                    log.error("Este error no debería ocurrir. Deteniendo sistema...")
+                    raise
                         
         except asyncio.CancelledError:
             log.info("Polling cancelado")
@@ -240,6 +250,10 @@ class DataProviderPolling(DataProviderBase):
         
         Calcula cuándo debería cerrar la próxima vela basándose en el intervalo
         y el tiempo actual (sincronizado con Binance).
+        
+        El buffer de espera se ajusta según el intervalo:
+        - Intervalos >= 1h: 10 segundos
+        - Intervalos < 1h: 5 segundos
         """
         # Obtener tiempo actual de Binance
         now = self.time_sync.get_binance_time() if self.time_sync else datetime.now()
@@ -256,8 +270,10 @@ class DataProviderPolling(DataProviderBase):
         # Calcular tiempo de espera
         wait_seconds = (next_close - now).total_seconds()
         
-        # Añadir un pequeño buffer (5 segundos) para asegurar que la vela esté cerrada
-        wait_seconds += 5
+        # Buffer ajustado según intervalo
+        # Para intervalos largos (>= 1h), damos más margen
+        buffer_seconds = 10 if self.intervalo_segundos >= 3600 else 5
+        wait_seconds += buffer_seconds
         
         if wait_seconds > 0:
             log.info(f"⏳ Esperando {wait_seconds:.0f}s hasta próximo cierre de vela ({next_close.strftime('%Y-%m-%d %H:%M:%S')})")
@@ -265,17 +281,29 @@ class DataProviderPolling(DataProviderBase):
         else:
             log.debug("Vela ya cerrada, procediendo inmediatamente")
     
-    async def _fetch_latest_closed_candle(self) -> Optional[Dict[str, Any]]:
+    async def _fetch_latest_closed_candle(self) -> Dict[str, Any]:
         """
         Descarga la última vela cerrada desde Binance.
         
+        Estrategia robusta:
+        1. Descarga las últimas 2 velas
+        2. Usa la ÚLTIMA vela (más reciente) como dato principal
+        3. Usa la PENÚLTIMA para verificar que hemos avanzado en el tiempo
+        4. Reintenta hasta 10 veces con backoff si falla
+        5. Si después de 10 intentos no hay nueva vela -> ERROR CRÍTICO
+        
         Returns:
-            Diccionario con datos de la vela o None si falla
+            Diccionario con datos de la vela
+            
+        Raises:
+            RuntimeError: Si después de 10 intentos no se puede obtener nueva vela
         """
-        max_retries = 3
+        max_retries = 10
+        base_wait = 6  # Segundos base entre reintentos
+        
         for attempt in range(max_retries):
             try:
-                # Descargar las últimas 2 velas (la última puede estar abierta)
+                # Descargar las últimas 2 velas
                 klines = await self.client.futures_klines(
                     symbol=self.simbolo,
                     interval=self.intervalo,
@@ -283,53 +311,103 @@ class DataProviderPolling(DataProviderBase):
                 )
                 
                 if not klines or len(klines) < 2:
-                    log.warning(f"No se obtuvieron suficientes velas (intento {attempt + 1}/{max_retries})")
+                    wait_time = base_wait + (attempt * 0.5)  # Incremento gradual
+                    log.warning(f"⚠️  No se obtuvieron suficientes velas (intento {attempt + 1}/{max_retries})")
                     if attempt < max_retries - 1:
-                        await asyncio.sleep(2)
+                        log.info(f"   Reintentando en {wait_time:.1f}s...")
+                        await asyncio.sleep(wait_time)
                         continue
-                    return None
+                    else:
+                        # Error crítico: no se pudo obtener velas después de 10 intentos
+                        error_msg = f"❌ CRÍTICO: No se pudieron obtener velas después de {max_retries} intentos"
+                        log.error(error_msg)
+                        raise RuntimeError(error_msg)
                 
-                # Tomar la penúltima vela (asegurándonos de que esté cerrada)
-                kline = klines[-2]
+                # ÚLTIMA vela (la más reciente) - puede estar cerrada o abierta
+                ultima_kline = klines[-1]
+                # PENÚLTIMA vela (para verificación)
+                penultima_kline = klines[-2]
                 
+                # Extraer timestamps
+                ultima_timestamp = datetime.fromtimestamp(int(ultima_kline[6]) / 1000)  # close_time
+                penultima_timestamp = datetime.fromtimestamp(int(penultima_kline[6]) / 1000)
+                
+                # Verificar progreso temporal usando la penúltima vela
+                if self.ultima_vela_timestamp:
+                    # Validar que la penúltima vela es diferente a la última procesada
+                    if penultima_timestamp <= self.ultima_vela_timestamp:
+                        wait_time = base_wait + (attempt * 0.5)
+                        log.debug(f"🔄 Penúltima vela aún no avanzó (intento {attempt + 1}/{max_retries})")
+                        log.debug(f"   Última procesada: {self.ultima_vela_timestamp}")
+                        log.debug(f"   Penúltima actual: {penultima_timestamp}")
+                        
+                        if attempt < max_retries - 1:
+                            log.info(f"   Esperando {wait_time:.1f}s para nueva vela...")
+                            await asyncio.sleep(wait_time)
+                            continue
+                        else:
+                            # Error crítico: no hay progreso después de 10 intentos
+                            error_msg = (
+                                f"❌ CRÍTICO: Sin progreso temporal después de {max_retries} intentos. "
+                                f"Última vela procesada: {self.ultima_vela_timestamp}"
+                            )
+                            log.error(error_msg)
+                            raise RuntimeError(error_msg)
+                
+                # Construir datos de la ÚLTIMA vela (la más reciente)
                 vela_data = {
-                    'timestamp': datetime.fromtimestamp(int(kline[6]) / 1000),  # close_time
-                    'open': float(kline[1]),
-                    'high': float(kline[2]),
-                    'low': float(kline[3]),
-                    'close': float(kline[4]),
-                    'volume': float(kline[5]),
-                    'is_closed': True
+                    'timestamp': ultima_timestamp,
+                    'open': float(ultima_kline[1]),
+                    'high': float(ultima_kline[2]),
+                    'low': float(ultima_kline[3]),
+                    'close': float(ultima_kline[4]),
+                    'volume': float(ultima_kline[5]),
+                    'is_closed': True  # Asumimos cerrada si pasó el tiempo de espera
                 }
                 
-                # Validar que no es una vela duplicada
-                if self.ultima_vela_timestamp and vela_data['timestamp'] <= self.ultima_vela_timestamp:
-                    log.debug(f"Vela duplicada detectada, esperando nueva vela...")
-                    if attempt < max_retries - 1:
-                        await asyncio.sleep(5)
-                        continue
-                    return None
-                
-                # Actualizar timestamp de última vela
+                # Actualizar timestamp de última vela procesada
                 self.ultima_vela_timestamp = vela_data['timestamp']
+                
+                log.info(f"✅ Vela obtenida exitosamente (intento {attempt + 1})")
+                log.debug(f"   Timestamp: {vela_data['timestamp']}")
+                log.debug(f"   Penúltima (verificación): {penultima_timestamp}")
                 
                 return vela_data
                 
             except BinanceAPIException as e:
-                log.error(f"Error de API Binance al descargar vela (intento {attempt + 1}/{max_retries}): {e}")
+                wait_time = base_wait + (attempt * 0.5)
+                log.error(f"⚠️  Error de API Binance (intento {attempt + 1}/{max_retries}): {e}")
                 if attempt < max_retries - 1:
-                    await asyncio.sleep(2 ** attempt)  # Backoff exponencial
+                    log.info(f"   Reintentando en {wait_time:.1f}s...")
+                    await asyncio.sleep(wait_time)
                     continue
-                return None
+                else:
+                    # Error crítico de API
+                    error_msg = f"❌ CRÍTICO: Error de API Binance persistente después de {max_retries} intentos: {e}"
+                    log.error(error_msg)
+                    raise RuntimeError(error_msg)
+                
+            except RuntimeError:
+                # Re-lanzar errores críticos sin envolverlos
+                raise
                 
             except Exception as e:
-                log.error(f"Error inesperado al descargar vela (intento {attempt + 1}/{max_retries}): {e}")
+                wait_time = base_wait + (attempt * 0.5)
+                log.error(f"⚠️  Error inesperado (intento {attempt + 1}/{max_retries}): {e}")
                 if attempt < max_retries - 1:
-                    await asyncio.sleep(2)
+                    log.info(f"   Reintentando en {wait_time:.1f}s...")
+                    await asyncio.sleep(wait_time)
                     continue
-                return None
+                else:
+                    # Error crítico inesperado
+                    error_msg = f"❌ CRÍTICO: Error inesperado persistente después de {max_retries} intentos: {e}"
+                    log.error(error_msg)
+                    raise RuntimeError(error_msg)
         
-        return None
+        # Este código nunca debería alcanzarse, pero por seguridad
+        error_msg = f"❌ CRÍTICO: Salida anómala del loop de reintentos"
+        log.error(error_msg)
+        raise RuntimeError(error_msg)
     
     def _actualizar_ventana(self, vela_data: Dict[str, Any]) -> None:
         """
