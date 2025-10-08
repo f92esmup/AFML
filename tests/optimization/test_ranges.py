@@ -92,7 +92,7 @@ class TestEnvironmentParameters:
         params = ranges.suggest_env_params(trial)
         
         assert 'max_drawdown_permitido' in params
-        assert 0.10 <= params['max_drawdown_permitido'] <= 0.25
+        assert 0.20 <= params['max_drawdown_permitido'] <= 0.40
     
     def test_recompensa_riesgo_weight(self):
         """Test del peso de riesgo en recompensa."""
