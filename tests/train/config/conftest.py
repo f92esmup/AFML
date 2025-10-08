@@ -97,7 +97,7 @@ def valid_cli_args() -> list:
         "--train-end-date", "2023-06-30",
         "--eval-start-date", "2023-07-01",
         "--eval-end-date", "2023-12-31",
-        "--episodios", "10",
+        "--total-timesteps", "10000",
         "--episodios-eval", "5",
         "--config", "src/train/config/config.yaml"
     ]
@@ -114,7 +114,7 @@ def mock_args_namespace():
         train_end_date="2023-06-30",
         eval_start_date="2023-07-01",
         eval_end_date="2023-12-31",
-        episodios=10,
+        total_timesteps=10000,
         episodios_eval=5,
         config="src/train/config/config.yaml"
     )

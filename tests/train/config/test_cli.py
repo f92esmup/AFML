@@ -21,7 +21,7 @@ class TestParseArgsTraining:
             assert args.train_end_date == "2023-06-30"
             assert args.eval_start_date == "2023-07-01"
             assert args.eval_end_date == "2023-12-31"
-            assert args.episodios == 10
+            assert args.total_timesteps == 10000
             assert args.episodios_eval == 5
             assert args.config == "src/train/config/config.yaml"
 
@@ -39,7 +39,7 @@ class TestParseArgsTraining:
         with patch.object(sys, 'argv', ['prog'] + minimal_args):
             args = parse_args_training()
             
-            assert args.episodios == 1  # Valor por defecto
+            assert args.total_timesteps == 10000  # Valor por defecto
             assert args.episodios_eval == 1  # Valor por defecto
             assert args.config == "src/train/config/config.yaml"  # Valor por defecto
 
@@ -128,35 +128,35 @@ class TestParseArgsTraining:
                 parse_args_training()
 
     def test_parse_args_invalid_episodios_zero(self):
-        """Test que verifica validación de episodios = 0."""
-        args_with_zero_episodes = [
+        """Test que verifica validación de total_timesteps = 0."""
+        args_with_zero_timesteps = [
             "--symbol", "BTCUSDT",
             "--interval", "1h",
             "--train-start-date", "2023-01-01",
             "--train-end-date", "2023-06-30",
             "--eval-start-date", "2023-07-01",
             "--eval-end-date", "2023-12-31",
-            "--episodios", "0"
+            "--total-timesteps", "0"
         ]
         
-        with patch.object(sys, 'argv', ['prog'] + args_with_zero_episodes):
-            with pytest.raises(ValueError, match="El número de episodios debe ser mayor que 0"):
+        with patch.object(sys, 'argv', ['prog'] + args_with_zero_timesteps):
+            with pytest.raises(ValueError, match="El número de timesteps debe ser mayor que 0"):
                 parse_args_training()
 
     def test_parse_args_invalid_episodios_negative(self):
-        """Test que verifica validación de episodios negativos."""
-        args_with_negative_episodes = [
+        """Test que verifica validación de total_timesteps negativos."""
+        args_with_negative_timesteps = [
             "--symbol", "BTCUSDT",
             "--interval", "1h",
             "--train-start-date", "2023-01-01",
             "--train-end-date", "2023-06-30",
             "--eval-start-date", "2023-07-01",
             "--eval-end-date", "2023-12-31",
-            "--episodios", "-5"
+            "--total-timesteps", "-5"
         ]
         
-        with patch.object(sys, 'argv', ['prog'] + args_with_negative_episodes):
-            with pytest.raises(ValueError, match="El número de episodios debe ser mayor que 0"):
+        with patch.object(sys, 'argv', ['prog'] + args_with_negative_timesteps):
+            with pytest.raises(ValueError, match="El número de timesteps debe ser mayor que 0"):
                 parse_args_training()
 
     def test_parse_args_invalid_episodios_eval_zero(self):
@@ -289,7 +289,7 @@ class TestParseArgsTraining:
             assert parsed.config == "custom/path/to/config.yaml"
 
     def test_parse_args_large_episodios(self):
-        """Test que verifica el parseo de un número grande de episodios."""
+        """Test que verifica el parseo de un número grande de timesteps."""
         args = [
             "--symbol", "BTCUSDT",
             "--interval", "1h",
@@ -297,11 +297,11 @@ class TestParseArgsTraining:
             "--train-end-date", "2023-06-30",
             "--eval-start-date", "2023-07-01",
             "--eval-end-date", "2023-12-31",
-            "--episodios", "10000",
+            "--total-timesteps", "1000000",
             "--episodios-eval", "1000"
         ]
         
         with patch.object(sys, 'argv', ['prog'] + args):
             parsed = parse_args_training()
-            assert parsed.episodios == 10000
+            assert parsed.total_timesteps == 1000000
             assert parsed.episodios_eval == 1000

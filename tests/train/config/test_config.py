@@ -227,7 +227,7 @@ class TestEntornoConfig:
             factor_aversion_riesgo=2.0,
             umbral_mantener_posicion=0.1,
             penalizacion_no_operar=0.0001,
-            episodios=10,
+            total_timesteps=10000,
             normalizar_portfolio=True,
             normalizar_recompensa=True,
             penalizacion_pct=0.00001
@@ -235,7 +235,7 @@ class TestEntornoConfig:
         
         assert config.window_size == 30
         assert config.max_drawdown_permitido == 0.2
-        assert config.episodios == 10
+        assert config.total_timesteps == 10000
         assert config.normalizar_portfolio is True
 
     def test_invalid_window_size_zero(self):
@@ -247,7 +247,7 @@ class TestEntornoConfig:
                 factor_aversion_riesgo=2.0,
                 umbral_mantener_posicion=0.1,
                 penalizacion_no_operar=0.0001,
-                episodios=10
+                total_timesteps=10000
             )
 
     def test_invalid_max_drawdown_greater_than_one(self):
@@ -259,7 +259,7 @@ class TestEntornoConfig:
                 factor_aversion_riesgo=2.0,
                 umbral_mantener_posicion=0.1,
                 penalizacion_no_operar=0.0001,
-                episodios=10
+                total_timesteps=10000
             )
 
 
@@ -413,7 +413,7 @@ class TestUnifiedConfig:
         assert updated_config["data_downloader"]["interval"] == "1h"
         assert updated_config["data_downloader"]["start_date"] == "2023-01-01"
         assert updated_config["data_downloader"]["end_date"] == "2023-06-30"
-        assert updated_config["entorno"]["episodios"] == 10
+        assert updated_config["entorno"]["total_timesteps"] == 10000
 
     def test_add_cli_args_unified_missing_entorno(self, valid_config_yaml: Dict[str, Any], mock_args_namespace: Namespace):
         """Test que verifica error cuando falta sección 'entorno'."""
@@ -456,7 +456,7 @@ class TestUnifiedConfig:
             
             assert isinstance(config, UnifiedConfig)
             assert config.data_downloader.symbol == "BTCUSDT"
-            assert config.entorno.episodios == 10
+            assert config.entorno.total_timesteps == 10000
             assert config.Output is not None
             assert config.Output.base_dir.startswith("entrenamientos/train_BTCUSDT")
 
