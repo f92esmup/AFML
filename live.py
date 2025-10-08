@@ -16,7 +16,7 @@ from src.utils.logger import setup_logger, configure_production_logging
 from src.produccion.config.cli import parse_args
 from src.produccion.config.config import ProductionConfig
 from src.produccion.binance import BinanceConnector
-from src.produccion.dataprovider import DataProvider
+from src.produccion.dataprovider import DataProviderFactory
 from src.produccion.observacion import ObservacionBuilder
 from src.produccion.agente_produccion import AgenteProduccion
 from src.produccion.control_riesgo import ControlRiesgo
@@ -118,11 +118,11 @@ async def main() -> None:
             raise RuntimeError("❌ Error al inicializar cuenta de Binance")
         log.info("✅ Cuenta de Binance inicializada con valores REALES")
         
-        # DataProvider (asíncrono para WebSocket)
+        # DataProvider (selección automática entre WebSocket y Polling)
         if config.scaler is None:
             raise ValueError("Scaler no cargado en la configuración")
         
-        data_provider = DataProvider(config, config.scaler)
+        data_provider = DataProviderFactory.create(config, config.scaler)
         await data_provider.inicializar(api_key, api_secret, testnet=not args.live)
         log.info("✅ DataProvider inicializado")
         

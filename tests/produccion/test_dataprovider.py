@@ -1,4 +1,8 @@
-"""Tests para el proveedor de datos."""
+"""Tests para el proveedor de datos.
+
+NOTA: Estos tests ahora usan el sistema modular con DataProviderWebSocket.
+El Factory selecciona automáticamente entre WebSocket y Polling según el intervalo.
+"""
 
 import pytest
 import asyncio
@@ -7,7 +11,7 @@ import numpy as np
 from datetime import datetime, timedelta
 from unittest.mock import Mock, AsyncMock, patch, MagicMock
 
-from src.produccion.dataprovider import DataProvider
+from src.produccion.dataprovider.websocket import DataProviderWebSocket
 from src.produccion.config.config import ProductionConfig
 
 
@@ -30,11 +34,11 @@ class TestDataProviderEdgeCases:
     @pytest.fixture
     def provider(self, production_config, fitted_scaler):
         """Fixture del DataProvider."""
-        return DataProvider(production_config, fitted_scaler)
+        return DataProviderWebSocket(production_config, fitted_scaler)
         
     def test_ventana_total_calculation(self, production_config, fitted_scaler):
         """Test del cálculo de ventana total."""
-        provider = DataProvider(production_config, fitted_scaler)
+        provider = DataProviderWebSocket(production_config, fitted_scaler)
         
         # Ventana total debe ser window_size + indicador más largo + buffer
         expected = 30 + max(200, 26, 20) + 50
@@ -43,9 +47,9 @@ class TestDataProviderEdgeCases:
     @pytest.mark.asyncio
     async def test_inicializar_testnet(self, production_config, fitted_scaler, mock_async_client):
         """Test de inicialización en modo testnet."""
-        provider = DataProvider(production_config, fitted_scaler)
+        provider = DataProviderWebSocket(production_config, fitted_scaler)
         
-        with patch("src.produccion.dataprovider.AsyncClient.create") as mock_create:
+        with patch("src.produccion.dataprovider.websocket.AsyncClient.create") as mock_create:
             mock_create.return_value = mock_async_client
             
             await provider.inicializar(
@@ -60,9 +64,9 @@ class TestDataProviderEdgeCases:
     @pytest.mark.asyncio
     async def test_inicializar_production(self, production_config, fitted_scaler, mock_async_client):
         """Test de inicialización en modo producción."""
-        provider = DataProvider(production_config, fitted_scaler)
+        provider = DataProviderWebSocket(production_config, fitted_scaler)
         
-        with patch("src.produccion.dataprovider.AsyncClient.create") as mock_create:
+        with patch("src.produccion.dataprovider.websocket.AsyncClient.create") as mock_create:
             mock_create.return_value = mock_async_client
             
             await provider.inicializar(
@@ -78,9 +82,9 @@ class TestDataProviderEdgeCases:
     @pytest.mark.asyncio
     async def test_descargar_historial_inicial(self, production_config, fitted_scaler, mock_async_client):
         """Test de descarga de historial inicial."""
-        provider = DataProvider(production_config, fitted_scaler)
+        provider = DataProviderWebSocket(production_config, fitted_scaler)
         
-        with patch("src.produccion.dataprovider.AsyncClient.create") as mock_create:
+        with patch("src.produccion.dataprovider.websocket.AsyncClient.create") as mock_create:
             mock_create.return_value = mock_async_client
             
             await provider.inicializar("key", "secret", testnet=True)
@@ -92,7 +96,7 @@ class TestDataProviderEdgeCases:
             
     def test_calcular_indicadores(self, production_config, fitted_scaler):
         """Test del cálculo de indicadores técnicos."""
-        provider = DataProvider(production_config, fitted_scaler)
+        provider = DataProviderWebSocket(production_config, fitted_scaler)
         
         # Crear DataFrame de prueba con suficientes filas
         df = pd.DataFrame({
@@ -128,7 +132,7 @@ class TestDataProviderEdgeCases:
             
     def test_calcular_indicadores_preserves_original_columns(self, production_config, fitted_scaler):
         """Test que calcular indicadores preserva las columnas originales."""
-        provider = DataProvider(production_config, fitted_scaler)
+        provider = DataProviderWebSocket(production_config, fitted_scaler)
         
         df = pd.DataFrame({
             "open": np.random.uniform(49000, 51000, 300),
@@ -147,7 +151,7 @@ class TestDataProviderEdgeCases:
     @pytest.mark.skip(reason="Test complejo que requiere ventana ya calculada con indicadores")
     def test_actualizar_ventana(self, production_config, fitted_scaler, sample_market_data):
         """Test de actualización de la ventana rodante."""
-        provider = DataProvider(production_config, fitted_scaler)
+        provider = DataProviderWebSocket(production_config, fitted_scaler)
         
         # Inicializar ventana manualmente
         provider.df_ventana = sample_market_data.copy()
@@ -174,7 +178,7 @@ class TestDataProviderEdgeCases:
         
     def test_get_ventana_normalizada_without_data(self, production_config, fitted_scaler):
         """Test de get_ventana cuando no hay datos."""
-        provider = DataProvider(production_config, fitted_scaler)
+        provider = DataProviderWebSocket(production_config, fitted_scaler)
         
         # El método lanza RuntimeError no ValueError
         with pytest.raises(RuntimeError, match="Ventana no inicializada"):
@@ -182,7 +186,7 @@ class TestDataProviderEdgeCases:
             
     def test_get_ventana_normalizada_with_data(self, production_config, fitted_scaler, sample_market_data):
         """Test de get_ventana con datos."""
-        provider = DataProvider(production_config, fitted_scaler)
+        provider = DataProviderWebSocket(production_config, fitted_scaler)
         provider.df_ventana = sample_market_data.copy()
         
         ventana = provider.get_ventana_normalizada()
@@ -196,9 +200,9 @@ class TestDataProviderEdgeCases:
     @pytest.mark.asyncio
     async def test_cerrar(self, production_config, fitted_scaler, mock_async_client):
         """Test de cierre de conexiones."""
-        provider = DataProvider(production_config, fitted_scaler)
+        provider = DataProviderWebSocket(production_config, fitted_scaler)
         
-        with patch("src.produccion.dataprovider.AsyncClient.create") as mock_create:
+        with patch("src.produccion.dataprovider.websocket.AsyncClient.create") as mock_create:
             mock_create.return_value = mock_async_client
             
             await provider.inicializar("key", "secret", testnet=True)
@@ -210,10 +214,10 @@ class TestDataProviderEdgeCases:
     @pytest.mark.asyncio
     async def test_stream_velas_not_initialized(self, production_config, fitted_scaler):
         """Test de stream_velas cuando no está inicializado."""
-        provider = DataProvider(production_config, fitted_scaler)
+        provider = DataProviderWebSocket(production_config, fitted_scaler)
         
-        # El método lanza RuntimeError no ValueError
-        with pytest.raises(RuntimeError, match="DataProvider no inicializado"):
+        # El método lanza RuntimeError con mensaje específico de WebSocket
+        with pytest.raises(RuntimeError, match="DataProviderWebSocket no inicializado"):
             async for _ in provider.stream_velas():
                 pass
                 
@@ -221,7 +225,7 @@ class TestDataProviderEdgeCases:
     @pytest.mark.asyncio
     async def test_stream_velas_yields_completed_candles(self, production_config, fitted_scaler, mock_async_client):
         """Test que stream_velas solo retorna velas completas."""
-        provider = DataProvider(production_config, fitted_scaler)
+        provider = DataProviderWebSocket(production_config, fitted_scaler)
         
         # Mock del socket manager
         mock_socket_manager = AsyncMock()
@@ -238,10 +242,10 @@ class TestDataProviderEdgeCases:
         mock_stream.__aenter__.return_value.__aiter__ = mock_recv
         mock_socket_manager.kline_futures_socket.return_value = mock_stream
         
-        with patch("src.produccion.dataprovider.AsyncClient.create") as mock_create:
+        with patch("src.produccion.dataprovider.websocket.AsyncClient.create") as mock_create:
             mock_create.return_value = mock_async_client
             
-            with patch("src.produccion.dataprovider.BinanceSocketManager") as mock_bsm:
+            with patch("src.produccion.dataprovider.websocket.BinanceSocketManager") as mock_bsm:
                 mock_bsm.return_value = mock_socket_manager
                 
                 await provider.inicializar("key", "secret", testnet=True)
@@ -275,7 +279,7 @@ class TestDataProviderIndicators:
     @pytest.fixture
     def provider(self, production_config, fitted_scaler):
         """Fixture del DataProvider."""
-        return DataProvider(production_config, fitted_scaler)
+        return DataProviderWebSocket(production_config, fitted_scaler)
     
     def test_sma_calculation(self, provider):
         """Test del cálculo de SMA."""
