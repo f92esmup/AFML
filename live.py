@@ -395,9 +395,12 @@ def ejecutar_operacion(
     Ejecuta la operación en Binance basada en la acción interpretada.
     Verifica el estado real antes y después para confirmar la ejecución.
     
+    IMPORTANTE: Esta función NO interpreta acciones, solo las ejecuta.
+    La interpretación se hace en AgenteProduccion.interpretar_accion()
+    
     Args:
         binance: Conector de Binance
-        accion_interpretada: Diccionario con tipo de operación
+        accion_interpretada: Diccionario con tipo de operación ya interpretada
         precio: Precio actual del activo
         
     Returns:
@@ -410,65 +413,135 @@ def ejecutar_operacion(
     estado_previo = binance.get_position_info()
     
     try:
-        # Calcular tamaño de posición
-        cantidad = binance.calculate_position_size(
-            action=intensidad if accion_interpretada['tipo_accion'] == 'long' else -intensidad,
-            precio_actual=precio
-        )
-        
-        if cantidad == 0:
-            return {
-                'tipo_accion': accion_interpretada['tipo_accion'],
-                'operacion': operacion,
-                'resultado': False,
-                'error': 'Cantidad calculada es 0'
-            }
-        
         order = None
+        cantidad = 0.0  # Se calculará según el tipo de operación
         
-        # Ejecutar según el tipo de operación
-        if 'abrir_long' in operacion or 'aumentar_long' in operacion:
-            order = binance.create_order(
-                symbol=binance.simbolo,
-                side='BUY',
-                quantity=cantidad,
-                order_type='MARKET'
-            )
+        # ========================================================================
+        # BIFURCACIÓN: Operaciones de CIERRE vs ABRIR/AUMENTAR
+        # ========================================================================
+        
+        if 'cerrar' in operacion:
+            # ====================================================================
+            # CASO 1: CERRAR POSICIÓN
+            # ====================================================================
+            # Para cerrar NO necesitamos calcular nueva cantidad ni validar margen.
+            # Simplemente cerramos la cantidad que está actualmente abierta.
             
-        elif 'abrir_short' in operacion or 'aumentar_short' in operacion:
-            order = binance.create_order(
-                symbol=binance.simbolo,
-                side='SELL',
-                quantity=cantidad,
-                order_type='MARKET'
-            )
-            
-        elif 'cerrar' in operacion:
-            # Primero cerrar la posición actual
             posicion_info = binance.get_position_info()
-            if posicion_info['posicion_abierta']:
-                side_cierre = 'SELL' if posicion_info['tipo_posicion_activa'] == 'LONG' else 'BUY'
-                order = binance.create_order(
-                    symbol=binance.simbolo,
-                    side=side_cierre,
-                    quantity=posicion_info['cantidad_activa'],
-                    order_type='MARKET',
-                    reduce_only=True
+            
+            # Validar que hay una posición abierta para cerrar
+            if not posicion_info['posicion_abierta']:
+                log.warning(f"⚠️ No hay posición abierta para cerrar")
+                return {
+                    'tipo_accion': accion_interpretada['tipo_accion'],
+                    'operacion': operacion,
+                    'resultado': False,
+                    'error': 'No hay posición abierta para cerrar',
+                    'trade_id': None,
+                }
+            
+            # Usar la cantidad activa de la posición (NO calcular nueva)
+            cantidad = posicion_info['cantidad_activa']
+            side_cierre = 'SELL' if posicion_info['tipo_posicion_activa'] == 'LONG' else 'BUY'
+            
+            log.info(
+                f"🔄 Cerrando posición {posicion_info['tipo_posicion_activa']}: "
+                f"{cantidad} unidades @ ${precio:.2f}"
+            )
+            
+            # Ejecutar orden de cierre
+            order = binance.create_order(
+                symbol=binance.simbolo,
+                side=side_cierre,
+                quantity=cantidad,
+                order_type='MARKET',
+                reduce_only=True
+            )
+            
+            # Si es cerrar_y_abrir, abrir nueva posición después
+            # (Esto requiere calcular cantidad para la nueva posición)
+            if 'abrir' in operacion:
+                # Ahora SÍ calcular cantidad para la nueva posición
+                cantidad_nueva = binance.calculate_position_size(
+                    action=intensidad if accion_interpretada['tipo_accion'] == 'long' else -intensidad,
+                    precio_actual=precio
                 )
                 
-                # Si es cerrar_y_abrir, abrir nueva posición
-                if 'abrir' in operacion:
+                if cantidad_nueva == 0:
+                    log.warning(
+                        f"⚠️ Posición cerrada pero no se pudo abrir nueva: balance insuficiente"
+                    )
+                    # La posición se cerró, pero no se abrió la nueva
+                    # Esto NO es un error total, el cierre fue exitoso
+                else:
                     side_nueva = 'BUY' if 'long' in operacion else 'SELL'
+                    log.info(
+                        f"➕ Abriendo nueva posición {accion_interpretada['tipo_accion'].upper()}: "
+                        f"{cantidad_nueva} unidades @ ${precio:.2f}"
+                    )
                     order = binance.create_order(
                         symbol=binance.simbolo,
                         side=side_nueva,
-                        quantity=cantidad,
+                        quantity=cantidad_nueva,
                         order_type='MARKET'
                     )
+                    cantidad = cantidad_nueva  # Actualizar cantidad para el retorno
         
+        else:
+            # ====================================================================
+            # CASO 2: ABRIR o AUMENTAR POSICIÓN
+            # ====================================================================
+            # Aquí SÍ necesitamos calcular cantidad y validar margen disponible
+            
+            cantidad = binance.calculate_position_size(
+                action=intensidad if accion_interpretada['tipo_accion'] == 'long' else -intensidad,
+                precio_actual=precio
+            )
+            
+            # Validar que hay suficiente balance para la operación
+            if cantidad == 0:
+                log.warning(
+                    f"⚠️ No se puede ejecutar {operacion}: balance insuficiente para margen requerido"
+                )
+                return {
+                    'tipo_accion': accion_interpretada['tipo_accion'],
+                    'operacion': operacion,
+                    'resultado': False,
+                    'error': 'Cantidad calculada es 0 - Balance insuficiente para margen requerido',
+                    'trade_id': None,
+                }
+            
+            # Ejecutar según el tipo de operación
+            if 'abrir_long' in operacion or 'aumentar_long' in operacion:
+                log.info(
+                    f"{'🆕 Abriendo' if 'abrir' in operacion else '📈 Aumentando'} posición LONG: "
+                    f"{cantidad} unidades @ ${precio:.2f}"
+                )
+                order = binance.create_order(
+                    symbol=binance.simbolo,
+                    side='BUY',
+                    quantity=cantidad,
+                    order_type='MARKET'
+                )
+                
+            elif 'abrir_short' in operacion or 'aumentar_short' in operacion:
+                log.info(
+                    f"{'🆕 Abriendo' if 'abrir' in operacion else '📉 Aumentando'} posición SHORT: "
+                    f"{cantidad} unidades @ ${precio:.2f}"
+                )
+                order = binance.create_order(
+                    symbol=binance.simbolo,
+                    side='SELL',
+                    quantity=cantidad,
+                    order_type='MARKET'
+                )
+        
+        # ========================================================================
         # VERIFICACIÓN CRÍTICA: ¿La orden se creó?
+        # ========================================================================
         if order is None:
             # La API retornó None - la operación FALLÓ
+            log.error(f"❌ create_order retornó None - Operación no ejecutada en Binance")
             return {
                 'tipo_accion': accion_interpretada['tipo_accion'],
                 'operacion': operacion,
@@ -479,11 +552,14 @@ def ejecutar_operacion(
                 'precio_entrada': precio,
             }
         
+        # ========================================================================
+        # VERIFICACIÓN POST-EJECUCIÓN
+        # ========================================================================
         # Actualizar estado DESPUÉS de la operación
         binance.get_account_info()
         estado_posterior = binance.get_position_info()
         
-        # VERIFICACIÓN ADICIONAL: Comparar estados para confirmar cambio
+        # Comparar estados para confirmar cambio
         cambio_detectado = False
         if 'abrir' in operacion or 'aumentar' in operacion:
             # Debería haber aumentado la cantidad
@@ -507,6 +583,10 @@ def ejecutar_operacion(
             )
         
         # Operación exitosa
+        log.info(
+            f"✅ Operación ejecutada: {operacion} | "
+            f"Cantidad: {cantidad} | Trade ID: {order.get('orderId')}"
+        )
         return {
             'tipo_accion': accion_interpretada['tipo_accion'],
             'operacion': operacion,
