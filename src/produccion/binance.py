@@ -534,6 +534,7 @@ class BinanceConnector:
         - Usa EQUITY (no balance) como base del cálculo
         - Incluye apalancamiento para determinar cantidad
         - Valida que el margen requerido no exceda el balance disponible
+        - Aplica factor de seguridad del 95% para cubrir margen de mantenimiento y comisiones
         - NO simula comisiones/slippage (Binance ya los incluye en equity real)
         
         Fórmula: cantidad = (equity * apalancamiento * intensidad) / precio
@@ -548,6 +549,11 @@ class BinanceConnector:
             Cantidad a operar (en unidades del activo), 0.0 si no hay balance suficiente
         """
         try:
+            # Factor de seguridad: usar máximo 90% del balance disponible
+            # Esto deja ~10% de buffer para: margen de mantenimiento (~0.4%), comisiones (~0.04%), 
+            # fluctuaciones de precio y margen de seguridad extra
+            FACTOR_SEGURIDAD = 0.90
+            
             # El valor absoluto de la acción indica el porcentaje del equity a usar
             intensidad = abs(action)
 
@@ -563,36 +569,58 @@ class BinanceConnector:
             # margen = (precio * cantidad) / apalancamiento
             margen_requerido = (precio_actual * cantidad_objetivo) / self._config.apalancamiento
             
-            # PASO 3: Validar que el margen cabe en el balance disponible
-            if margen_requerido > self._balance:
-                # NO HAY SUFICIENTE BALANCE DISPONIBLE
-                # NO se ejecuta la operación (retornar 0)
-                log.warning(
-                    f"⚠️  Balance insuficiente para ejecutar la operación"
+            # PASO 3: Calcular balance usable (con factor de seguridad)
+            balance_usable = self._balance * FACTOR_SEGURIDAD
+            
+            # PASO 4: Validar y ajustar cantidad si es necesario
+            if margen_requerido > balance_usable:
+                # El margen requerido excede el balance usable
+                # Recalcular cantidad para que quepa en el balance disponible
+                cantidad_ajustada = (balance_usable * self._config.apalancamiento) / precio_actual
+                margen_ajustado = (precio_actual * cantidad_ajustada) / self._config.apalancamiento
+                
+                if cantidad_ajustada <= 0:
+                    log.warning(
+                        f"⚠️  Balance insuficiente para ejecutar la operación"
+                    )
+                    log.warning(
+                        f"   Margen requerido: ${margen_requerido:.2f}"
+                    )
+                    log.warning(
+                        f"   Balance usable (95%): ${balance_usable:.2f}"
+                    )
+                    log.warning(
+                        f"   Balance total: ${self._balance:.2f}"
+                    )
+                    log.warning(
+                        f"   Operación NO ejecutada"
+                    )
+                    return 0.0
+                
+                cantidad_final = round(cantidad_ajustada, 3)
+                
+                log.info(
+                    f"⚙️  Cantidad ajustada para caber en balance disponible"
                 )
-                log.warning(
-                    f"   Margen requerido: ${margen_requerido:.2f}"
+                log.info(
+                    f"   Cantidad objetivo: {cantidad_objetivo:.6f} → Ajustada: {cantidad_final:.6f}"
                 )
-                log.warning(
-                    f"   Balance disponible: ${self._balance:.2f}"
+                log.info(
+                    f"   Margen requerido: ${margen_requerido:.2f} → Ajustado: ${margen_ajustado:.2f}"
                 )
-                log.warning(
-                    f"   Cantidad objetivo: {cantidad_objetivo:.6f}"
-                )
-                log.warning(
-                    f"   Operación NO ejecutada"
+                log.info(
+                    f"   Balance usable: ${balance_usable:.2f} (95% de ${self._balance:.2f})"
                 )
                 
-                return 0.0
-            
-            # El margen cabe en el balance, usar cantidad objetivo
-            cantidad_final = round(cantidad_objetivo, 3)
-            
-            log.debug(
-                f"Cantidad calculada: {cantidad_final} "
-                f"(equity: ${self._equity:.2f}, intensidad: {intensidad:.2%}, "
-                f"margen requerido: ${margen_requerido:.2f})"
-            )
+            else:
+                # El margen cabe en el balance usable, usar cantidad objetivo
+                cantidad_final = round(cantidad_objetivo, 3)
+                
+                log.debug(
+                    f"Cantidad calculada: {cantidad_final} "
+                    f"(equity: ${self._equity:.2f}, intensidad: {intensidad:.2%}, "
+                    f"margen requerido: ${margen_requerido:.2f}, balance usable: ${balance_usable:.2f})"
+                )
             
             return cantidad_final
             
