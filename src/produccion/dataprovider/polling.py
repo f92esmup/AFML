@@ -285,21 +285,22 @@ class DataProviderPolling(DataProviderBase):
         """
         Descarga la última vela cerrada desde Binance.
         
-        Estrategia robusta:
+        Estrategia robusta para TESTNET (que puede tener retrasos):
         1. Descarga las últimas 2 velas
         2. Usa la ÚLTIMA vela (más reciente) como dato principal
         3. Usa la PENÚLTIMA para verificar que hemos avanzado en el tiempo
-        4. Reintenta hasta 10 veces con backoff si falla
-        5. Si después de 10 intentos no hay nueva vela -> ERROR CRÍTICO
+        4. Reintenta hasta 15 veces con backoff progresivo si falla
+        5. TOLERANCIA: Acepta la misma vela si es nueva comparada con la anterior procesada
+        6. Si después de 15 intentos no hay nueva vela -> ERROR CRÍTICO
         
         Returns:
             Diccionario con datos de la vela
             
         Raises:
-            RuntimeError: Si después de 10 intentos no se puede obtener nueva vela
+            RuntimeError: Si después de 15 intentos no se puede obtener nueva vela
         """
-        max_retries = 10
-        base_wait = 6  # Segundos base entre reintentos
+        max_retries = 15  # Aumentado de 10 a 15 para testnet
+        base_wait = 11  # Aumentado de 10 a 11 segundos (margen sobre retraso promedio)
         
         for attempt in range(max_retries):
             try:
@@ -311,14 +312,14 @@ class DataProviderPolling(DataProviderBase):
                 )
                 
                 if not klines or len(klines) < 2:
-                    wait_time = base_wait + (attempt * 0.5)  # Incremento gradual
+                    wait_time = base_wait + (attempt * 1.0)  # Incremento más gradual
                     log.warning(f"⚠️  No se obtuvieron suficientes velas (intento {attempt + 1}/{max_retries})")
                     if attempt < max_retries - 1:
                         log.info(f"   Reintentando en {wait_time:.1f}s...")
                         await asyncio.sleep(wait_time)
                         continue
                     else:
-                        # Error crítico: no se pudo obtener velas después de 10 intentos
+                        # Error crítico: no se pudo obtener velas después de todos los intentos
                         error_msg = f"❌ CRÍTICO: No se pudieron obtener velas después de {max_retries} intentos"
                         log.error(error_msg)
                         raise RuntimeError(error_msg)
@@ -332,21 +333,22 @@ class DataProviderPolling(DataProviderBase):
                 ultima_timestamp = datetime.fromtimestamp(int(ultima_kline[6]) / 1000)  # close_time
                 penultima_timestamp = datetime.fromtimestamp(int(penultima_kline[6]) / 1000)
                 
-                # Verificar progreso temporal usando la penúltima vela
+                # NUEVA LÓGICA: Verificar si tenemos datos nuevos
+                # Comparamos con la última vela PROCESADA, no con la penúltima descargada
                 if self.ultima_vela_timestamp:
-                    # Validar que la penúltima vela es diferente a la última procesada
-                    if penultima_timestamp <= self.ultima_vela_timestamp:
-                        wait_time = base_wait + (attempt * 0.5)
-                        log.debug(f"🔄 Penúltima vela aún no avanzó (intento {attempt + 1}/{max_retries})")
+                    # ¿La última vela descargada es nueva comparada con la que ya procesamos?
+                    if ultima_timestamp <= self.ultima_vela_timestamp:
+                        wait_time = base_wait + (attempt * 1.0)
+                        log.debug(f"🔄 Última vela aún no avanzó (intento {attempt + 1}/{max_retries})")
                         log.debug(f"   Última procesada: {self.ultima_vela_timestamp}")
-                        log.debug(f"   Penúltima actual: {penultima_timestamp}")
+                        log.debug(f"   Última descargada: {ultima_timestamp}")
                         
                         if attempt < max_retries - 1:
                             log.info(f"   Esperando {wait_time:.1f}s para nueva vela...")
                             await asyncio.sleep(wait_time)
                             continue
                         else:
-                            # Error crítico: no hay progreso después de 10 intentos
+                            # Error crítico: no hay progreso después de todos los intentos
                             error_msg = (
                                 f"❌ CRÍTICO: Sin progreso temporal después de {max_retries} intentos. "
                                 f"Última vela procesada: {self.ultima_vela_timestamp}"
@@ -375,7 +377,7 @@ class DataProviderPolling(DataProviderBase):
                 return vela_data
                 
             except BinanceAPIException as e:
-                wait_time = base_wait + (attempt * 0.5)
+                wait_time = base_wait + (attempt * 1.0)
                 log.error(f"⚠️  Error de API Binance (intento {attempt + 1}/{max_retries}): {e}")
                 if attempt < max_retries - 1:
                     log.info(f"   Reintentando en {wait_time:.1f}s...")
@@ -392,7 +394,7 @@ class DataProviderPolling(DataProviderBase):
                 raise
                 
             except Exception as e:
-                wait_time = base_wait + (attempt * 0.5)
+                wait_time = base_wait + (attempt * 1.0)
                 log.error(f"⚠️  Error inesperado (intento {attempt + 1}/{max_retries}): {e}")
                 if attempt < max_retries - 1:
                     log.info(f"   Reintentando en {wait_time:.1f}s...")

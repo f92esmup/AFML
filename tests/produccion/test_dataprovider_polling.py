@@ -2,10 +2,10 @@
 
 Tests que validan:
 1. Obtención exitosa de última vela
-2. Sistema de reintentos (10 intentos)
+2. Sistema de reintentos (15 intentos)
 3. Verificación de progreso temporal con penúltima vela
 4. Buffer adaptativo según intervalo
-5. Fail-safe: sistema se para si falla después de 10 intentos
+5. Fail-safe: sistema se para si falla después de 15 intentos
 """
 
 import pytest
@@ -185,7 +185,7 @@ class TestDataProviderPollingReintentos:
     
     @pytest.mark.asyncio
     async def test_fetch_vela_falla_despues_10_intentos(self, provider):
-        """Test: Lanza RuntimeError después de 10 intentos fallidos."""
+        """Test: Lanza RuntimeError después de 15 intentos fallidos."""
         mock_client = AsyncMock()
         
         # Todos los intentos fallan (retorna vacío)
@@ -194,15 +194,15 @@ class TestDataProviderPollingReintentos:
         
         # Ejecutar y esperar RuntimeError
         with patch('asyncio.sleep', new_callable=AsyncMock):
-            with pytest.raises(RuntimeError, match="CRÍTICO.*10 intentos"):
+            with pytest.raises(RuntimeError, match="CRÍTICO.*15 intentos"):
                 await provider._fetch_latest_closed_candle()
         
-        # Debe haber intentado exactamente 10 veces
-        assert mock_client.futures_klines.call_count == 10
+        # Debe haber intentado exactamente 15 veces
+        assert mock_client.futures_klines.call_count == 15
     
     @pytest.mark.asyncio
     async def test_fetch_vela_sin_progreso_10_intentos_falla(self, provider, mock_klines_sin_progreso):
-        """Test: Falla después de 10 intentos sin progreso temporal."""
+        """Test: Falla después de 15 intentos sin progreso temporal."""
         mock_client = AsyncMock()
         
         # Establecer última vela procesada
@@ -215,10 +215,10 @@ class TestDataProviderPollingReintentos:
         provider.client = mock_client
         
         with patch('asyncio.sleep', new_callable=AsyncMock):
-            with pytest.raises(RuntimeError, match="Sin progreso temporal.*10 intentos"):
+            with pytest.raises(RuntimeError, match="Sin progreso temporal.*15 intentos"):
                 await provider._fetch_latest_closed_candle()
         
-        assert mock_client.futures_klines.call_count == 10
+        assert mock_client.futures_klines.call_count == 15
     
     @pytest.mark.asyncio
     async def test_fetch_vela_backoff_incremental(self, provider, mock_klines_progreso):
@@ -240,15 +240,16 @@ class TestDataProviderPollingReintentos:
             vela = await provider._fetch_latest_closed_candle()
         
         # Verificar llamadas a sleep con backoff incremental
-        # Intento 1 → espera 6.0s
-        # Intento 2 → espera 6.5s
-        # Intento 3 → espera 7.0s
+        # Configuración actual: base_wait=11s, incremento=1.0s
+        # Intento 1 → espera 11.0s
+        # Intento 2 → espera 12.0s
+        # Intento 3 → espera 13.0s
         sleep_calls = [call.args[0] for call in mock_sleep.call_args_list]
         
         assert len(sleep_calls) == 3
-        assert sleep_calls[0] == pytest.approx(6.0, abs=0.1)
-        assert sleep_calls[1] == pytest.approx(6.5, abs=0.1)
-        assert sleep_calls[2] == pytest.approx(7.0, abs=0.1)
+        assert sleep_calls[0] == pytest.approx(11.0, abs=0.1)
+        assert sleep_calls[1] == pytest.approx(12.0, abs=0.1)
+        assert sleep_calls[2] == pytest.approx(13.0, abs=0.1)
     
     @pytest.mark.asyncio
     async def test_fetch_vela_usa_ultima_no_penultima(self, provider, mock_klines_progreso):
