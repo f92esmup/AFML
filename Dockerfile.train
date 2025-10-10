@@ -44,11 +44,11 @@ ENV PYTHONPATH="/app"
 RUN echo "conda activate $CONDA_ENV_NAME" >> ~/.bashrc
 SHELL ["/bin/bash", "--login", "-c"]
 
-# Punto de entrada para activar conda y ejecutar el script de entrenamiento
-ENTRYPOINT ["conda", "run", "-n", "AFML", "python", "/app/train.py"]
+# Punto de entrada genérico para ejecutar cualquier script Python
+ENTRYPOINT ["conda", "run", "-n", "AFML", "python"]
 
-# CMD por defecto (puede ser sobrescrito)
-CMD ["--help"]
+# CMD por defecto: ejecutar train.py (puede ser sobrescrito)
+CMD ["/app/train.py", "--help"]
 
 # Metadata
 LABEL maintainer="pedro"
