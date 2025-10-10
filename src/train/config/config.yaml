@@ -1,14 +1,14 @@
 SACmodel:
-  batch_size: 64
+  batch_size: 512
   buffer_size: 1000000
-  ent_coef: auto_0.07345144250516616
-  gamma: 0.9850715755806463
+  ent_coef: auto_0.23030113301631938
+  gamma: 0.9645026520727125
   gradient_steps: 1
-  learning_rate: 0.0004283224849979167
-  learning_starts: 4000
+  learning_rate: 5.5363680642284374e-05
+  learning_starts: 7000
   policy: MultiInputPolicy
   seed: 42
-  tau: 0.017352444523482287
+  tau: 0.0025885776194616884
   train_freq:
   - 1
   - step
@@ -17,11 +17,11 @@ data_downloader:
   limit: 1500
 entorno:
   total_timesteps: 10000
-  factor_aversion_riesgo: 1.6734292558460067
-  max_drawdown_permitido: 0.23050916820666872
+  factor_aversion_riesgo: 2.0863344199482423
+  max_drawdown_permitido: 0.2595079825048034
   normalizar_portfolio: True
   normalizar_recompensa: True
-  penalizacion_no_operar: 0.0009107051853592882
+  penalizacion_no_operar: 0.03681740674814807
   umbral_mantener_posicion: 0.05
   window_size: 100
   
@@ -30,21 +30,21 @@ entorno:
   # ════════════════════════════════════════════════════════════
   
   # Normalización de recompensas
-  factor_escala_recompensa: 116.71289028539161  # Escala retornos % a rango [-1, +1]
+  factor_escala_recompensa: 122.27112828942387  # Escala retornos % a rango [-1, +1]
   
   # Pesos de componentes de recompensa (suman ~2.0 total)
-  peso_retorno_base: 0.8891383444336317       # Cambio en equity
-  peso_temporal:  0.30326977179374437          # Penalización/bonificación por tiempo
-  peso_gestion: 0.09450732708883583            # Eficiencia en cierres
-  peso_drawdown: 0.1304291873528854         # Protección contra ruina
+  peso_retorno_base: 0.5814071537174013       # Cambio en equity
+  peso_temporal: 0.2135140473407721          # Penalización/bonificación por tiempo
+  peso_gestion: 0.32154121340116326            # Eficiencia en cierres
+  peso_drawdown: 0.25573885482672837         # Protección contra ruina
   peso_inaccion: 0.05          # Anti-inacción
   
   # Parámetros de penalización temporal por pérdidas
-  umbral_perdida_pct: 0.009906909686574074           # 0.5% pérdida mínima para activar
+  umbral_perdida_pct: 0.006449151716116031           # 0.64% pérdida mínima para activar
   factor_crecimiento_perdida: 0.05    # Penalización crece 5% por vela
   
   # Parámetros de bonificación por ganancias
-  umbral_ganancia_pct: 0.004008242883188871         # 0.5% ganancia mínima para bonificar
+  umbral_ganancia_pct: 0.0073484849602787         # 0.73% ganancia mínima para bonificar
   factor_moderacion_ganancia: 0.3     # Solo 30% de la ganancia como bonus
   factor_crecimiento_ganancia: 0.01   # Bonus crece 1% por vela
   
@@ -66,21 +66,29 @@ output:
   metadata_filename: metadata.yaml
   scaler_filename: scaler.pkl
 policy_kwargs:
-  log_std_init: -2.035153637819397
+  log_std_init: -3.763764988638299
   n_critics: 2
   net_arch:
     pi:
+    - 256
+    - 512
+    - 512
+    - 512
     - 512
     - 128
-    - 128
-    - 128
+    - 256
+    - 512
     qf:
+    - 256
+    - 512
+    - 512
+    - 512
     - 512
     - 128
-    - 128
-    - 128
+    - 256
+    - 512
 portafolio:
-  apalancamiento: 15.0
+  apalancamiento: 19.0
   capital_inicial: 10000.0
   comision: 0.001
   slippage: 0.001
