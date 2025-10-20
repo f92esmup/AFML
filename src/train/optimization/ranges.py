@@ -102,7 +102,7 @@ def suggest_network_architecture(trial: optuna.Trial) -> Dict[str, Any]:
     """
     # Número de capas (2 a 10 para máxima flexibilidad)
     # NOTA: Puedes ajustar el rango según necesites (ej: 2-5 para redes más simples)
-    n_layers = trial.suggest_int('n_layers', 2, 10)
+    n_layers = trial.suggest_int('n_layers', 8, 18)
     
     # Tamaño de capas (potencias de 2)
     layer_sizes = []
